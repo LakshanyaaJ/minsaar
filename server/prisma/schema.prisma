@@ -7,8 +7,265 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Minimal stub to test DB connection. Full schema comes in 2.2.
-model Health {
-  id        Int      @id @default(autoincrement())
-  updatedAt DateTime @updatedAt
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String          @map("password_hash")
+  name         String
+  role         Role            @default(ADMIN)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  auditLogs    AuditLog[]
+  simulations  SimulationJob[]
+
+  @@map("users")
+}
+
+model Building {
+  id        String   @id @default(uuid())
+  name      String
+  siteId    Int?     @map("site_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  rooms     Room[]
+
+  @@map("buildings")
+}
+
+model Room {
+  id              String           @id @default(uuid())
+  buildingId      String           @map("building_id")
+  name            String
+  roomType        String           @map("room_type") // computer_lab, classroom, seminar_hall, admin_office
+  minTempC        Float            @default(22.0) @map("min_temp_c")
+  maxTempC        Float            @default(26.0) @map("max_temp_c")
+  squareFeet      Float?           @map("square_feet")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  building        Building         @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  acUnits         AcUnit[]
+  recommendations Recommendation[]
+  readings        Reading[]
+  predictions     Prediction[]
+  anomalies       Anomaly[]
+
+  @@map("rooms")
+}
+
+model AcUnit {
+  id                 String              @id @default(uuid())
+  roomId             String              @map("room_id")
+  ratedKw            Float               @map("rated_kw")
+  coolingCapacityKw  Float?              @map("cooling_capacity_kw")
+  controllable       Boolean             @default(true)
+  controlMode        String              @default("ir") @map("control_mode") // recommend_only, relay, ir
+  equipmentType      String?             @map("equipment_type") // Inverter, Fixed-speed
+  ratedCop           Float?              @map("rated_cop")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  room               Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  schedules          Schedule[]
+  scheduleExceptions ScheduleException[]
+  readings           Reading[]
+  predictions        Prediction[]
+  anomalies          Anomaly[]
+  controlCommands    ControlCommand[]
+
+  @@map("ac_units")
+}
+
+model Schedule {
+  id        String   @id @default(uuid())
+  acUnitId  String   @map("ac_unit_id")
+  weekday   Int // 0-6 (Sun-Sat)
+  onTime    String   @map("on_time") // "HH:mm"
+  offTime   String   @map("off_time") // "HH:mm"
+  setpointC Float    @default(24.0) @map("setpoint_c")
+  active    Boolean  @default(true)
+  priority  Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  acUnit    AcUnit   @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+
+  @@index([acUnitId, weekday])
+  @@map("schedules")
+}
+
+model ScheduleException {
+  id        String   @id @default(uuid())
+  acUnitId  String   @map("ac_unit_id")
+  date      String // "YYYY-MM-DD"
+  kind      String // 'holiday' | 'override'
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  acUnit    AcUnit   @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+
+  @@map("schedule_exceptions")
+}
+
+model Reading {
+  id           String   @id @default(uuid())
+  acUnitId     String   @map("ac_unit_id")
+  roomId       String?  @map("room_id")
+  timestamp    DateTime @map("timestamp")
+  powerKw      Float    @map("power_kw")
+  energyKwh    Float?   @map("energy_kwh")
+  setTempC     Float    @map("set_temp_c")
+  roomTempC    Float    @map("room_temp_c")
+  occupancy    Float    @map("occupancy")
+  onOff        Boolean  @map("on_off")
+  outdoorTempC Float?   @map("outdoor_temp_c")
+  dataSource   String   @default("measured") @map("data_source") // measured, simulated, predicted, estimated, uploaded
+  createdAt    DateTime @default(now()) @map("created_at")
+  acUnit       AcUnit   @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+  room         Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([acUnitId, timestamp])
+  @@index([timestamp])
+  @@map("readings")
+}
+
+model Prediction {
+  id                 String   @id @default(uuid())
+  acUnitId           String?  @map("ac_unit_id")
+  roomId             String?  @map("room_id")
+  targetTimestamp    DateTime @map("target_timestamp")
+  horizonHours       Int      @map("horizon_hours")
+  predictedEnergyKwh Float    @map("predicted_energy_kwh")
+  modelVersion       String   @map("model_version")
+  dataSource         String   @default("predicted") @map("data_source")
+  createdAt          DateTime @default(now()) @map("created_at")
+  acUnit             AcUnit?  @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+  room               Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([targetTimestamp])
+  @@map("predictions")
+}
+
+model Anomaly {
+  id           String   @id @default(uuid())
+  acUnitId     String   @map("ac_unit_id")
+  roomId       String?  @map("room_id")
+  timestamp    DateTime @map("timestamp")
+  category     String // runtime_after_hours, setpoint_too_low, excessive_power, phantom_run
+  severity     String // critical, high, medium, low
+  score        Float?
+  wastedKwhEst Float    @default(0.0) @map("wasted_kwh_est")
+  observations Json     @default("[]")
+  resolved     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  acUnit       AcUnit   @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+  room         Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([acUnitId, timestamp])
+  @@map("anomalies")
+}
+
+model Recommendation {
+  id          String   @id @default(uuid())
+  roomId      String   @map("room_id")
+  acUnitId    String?  @map("ac_unit_id")
+  type        String // schedule, temperature, energy
+  priority    String // critical, high, medium, low
+  issue       String
+  evidence    Json     @default("[]")
+  action      String
+  estKwh      Float    @map("est_kwh")
+  estCostInr  Float    @map("est_cost_inr")
+  confidence  Float    @default(85)
+  status      String   @default("pending") // pending, accepted, rejected, modified
+  explanation String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("recommendations")
+}
+
+model ControlCommand {
+  id            String   @id @default(uuid())
+  acUnitId      String   @map("ac_unit_id")
+  commandType   String   @map("command_type") // ON, OFF, SETPOINT
+  payload       Json     @default("{}")
+  plannedOrSent String   @default("planned") @map("planned_or_sent") // planned, sent
+  status        String   @default("pending") // pending, executed, failed
+  reason        String
+  createdBy     String?  @map("created_by")
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now()) @map("created_at")
+  acUnit        AcUnit   @relation(fields: [acUnitId], references: [id], onDelete: Cascade)
+
+  @@map("control_commands")
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  details    Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model SimulationJob {
+  id               String           @id @default(uuid())
+  userId           String?          @map("user_id")
+  status           String           @default("queued") // queued, running, done, failed
+  progress         Float            @default(0.0)
+  stepsCompleted   Int              @default(0) @map("steps_completed")
+  stepsTotal       Int              @default(0) @map("steps_total")
+  config           Json
+  summary          Json?
+  error            String?
+  readingsFilename String?          @map("readings_filename")
+  scheduleFilename String?          @map("schedule_filename")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  steps            SimulationStep[]
+
+  @@map("simulation_jobs")
+}
+
+model SimulationStep {
+  id                   String        @id @default(uuid())
+  jobId                String        @map("job_id")
+  stepIndex            Int           @map("step_index")
+  windowStart          String        @map("window_start")
+  windowEnd            String        @map("window_end")
+  actualKwh            Float         @map("actual_kwh")
+  predictedKwh         Float         @map("predicted_kwh")
+  forecastNextKwh      Float         @map("forecast_next_kwh")
+  anomalies            Json          @default("[]")
+  wastedKwhEst         Float         @map("wasted_kwh_est")
+  outsideScheduleHours Boolean       @map("outside_schedule_hours")
+  tempStatus           Json          @map("temp_status")
+  recommendationIds    Json          @default("[]") @map("recommendation_ids")
+  details              Json?
+  createdAt            DateTime      @default(now()) @map("created_at")
+  job                  SimulationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, stepIndex])
+  @@index([jobId])
+  @@map("simulation_steps")
 }

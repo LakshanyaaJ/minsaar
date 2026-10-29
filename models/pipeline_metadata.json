@@ -1,0 +1,77 @@
+{
+  "winning_model": "HistGradientBoosting",
+  "feature_columns": [
+    "building_id",
+    "log_square_feet",
+    "primary_use_code",
+    "year_built",
+    "floor_count",
+    "hour",
+    "dayofweek",
+    "month",
+    "is_weekend",
+    "sin_hour",
+    "cos_hour",
+    "sin_dayofweek",
+    "cos_dayofweek",
+    "sin_month",
+    "cos_month",
+    "air_temperature",
+    "dew_temperature",
+    "wind_speed",
+    "relative_humidity",
+    "cooling_degree_hours",
+    "heating_degree_hours",
+    "lag_24h",
+    "lag_48h",
+    "lag_168h",
+    "rolling_mean_24h",
+    "rolling_std_24h"
+  ],
+  "target": "meter_reading",
+  "target_unit": "kWh",
+  "train_period": "2016-01-01 00:00:00 to 2016-10-31 23:00:00",
+  "val_period": "2016-11-01 00:00:00 to 2016-12-31 23:00:00",
+  "train_samples": 188747,
+  "val_samples": 64800,
+  "supported_horizons": {
+    "2H": 2,
+    "24H": 24,
+    "3D": 72,
+    "7D": 168
+  },
+  "validation_metrics": {
+    "Baseline (24h Persistence)": {
+      "MAE_kWh": 33.1536,
+      "RMSE_kWh": 69.9694,
+      "R2": 0.9779,
+      "WAPE_pct": 7.95,
+      "Mean_Bias_kWh": 0.6985,
+      "N_samples": 64800
+    },
+    "Baseline (168h Seasonal)": {
+      "MAE_kWh": 45.35,
+      "RMSE_kWh": 89.6929,
+      "R2": 0.9638,
+      "WAPE_pct": 10.88,
+      "Mean_Bias_kWh": 4.5471,
+      "N_samples": 64800
+    },
+    "HistGradientBoosting": {
+      "MAE_kWh": 33.8893,
+      "RMSE_kWh": 67.9222,
+      "R2": 0.9792,
+      "WAPE_pct": 8.13,
+      "Mean_Bias_kWh": -4.561,
+      "N_samples": 64800
+    },
+    "XGBoost": {
+      "MAE_kWh": 35.4155,
+      "RMSE_kWh": 72.3094,
+      "R2": 0.9764,
+      "WAPE_pct": 8.5,
+      "Mean_Bias_kWh": -8.8817,
+      "N_samples": 64800
+    }
+  }
+}

@@ -3,10 +3,13 @@ import { env } from './config/env';
 import { prisma } from './config/db';
 import pino from 'pino';
 
+import { cronRunner } from './jobs/cronRunner';
+
 const logger = pino();
 
 const server = app.listen(env.PORT, () => {
   logger.info(`🚀 Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
+  cronRunner.start();
 });
 
 const gracefulShutdown = async (signal: string) => {
