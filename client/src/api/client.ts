@@ -1,5 +1,6 @@
 import { store } from '../mock/store';
 import type { Building, Room, AcUnit, Schedule, Recommendation, Settings, OverviewMetrics } from '../types/domain';
+import type { SimulationJob, SimulationRunConfig } from '../types/simulation';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
@@ -95,5 +96,45 @@ export const apiClient = {
       return;
     }
     return fetch(`${API_URL}/settings/tariff`, { method: 'POST', body: JSON.stringify({ tariff }) }).then(r => r.json());
+  },
+  
+  createSimulation: async (payload: { readingsContent: string, scheduleContent: string, config: SimulationRunConfig }): Promise<{ id: string }> => {
+    if (USE_MOCK) {
+      await delay(400);
+      const id = store.createSimulation(payload.config);
+      return { id };
+    }
+    // Stub for Phase 2 Form Data upload
+    const formData = new FormData();
+    formData.append('readingsFile', new Blob([payload.readingsContent], { type: 'text/csv' }));
+    formData.append('scheduleFile', new Blob([payload.scheduleContent], { type: 'text/csv' }));
+    formData.append('config', JSON.stringify(payload.config));
+    return fetch(`${API_URL}/simulations`, { method: 'POST', body: formData }).then(r => r.json());
+  },
+
+  getSimulation: async (id: string): Promise<SimulationJob> => {
+    if (USE_MOCK) {
+      const job = store.getSimulation(id);
+      if (!job) throw new Error("Not found");
+      return job;
+    }
+    return fetch(`${API_URL}/simulations/${id}`).then(r => r.json());
+  },
+
+  listSimulations: async (): Promise<SimulationJob[]> => {
+    if (USE_MOCK) {
+      await delay(300);
+      return store.listSimulations();
+    }
+    return fetch(`${API_URL}/simulations`).then(r => r.json());
+  },
+
+  deleteSimulation: async (id: string): Promise<void> => {
+    if (USE_MOCK) {
+      await delay(300);
+      store.deleteSimulation(id);
+      return;
+    }
+    return fetch(`${API_URL}/simulations/${id}`, { method: 'DELETE' }).then(r => r.json());
   }
 };
