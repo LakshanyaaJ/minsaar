@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import type { Schedule, Recommendation } from '../types/domain';
+import type { SimulationRunConfig } from '../types/simulation';
 
 export const useOverview = (range: string) => {
   return useQuery({
@@ -61,5 +62,33 @@ export const useUpsertSchedule = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
     },
+  });
+};
+
+export const useCreateSimulation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: apiClient.createSimulation,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['simulations'] })
+  });
+};
+
+export const useSimulation = (id: string | null) => {
+  return useQuery({
+    queryKey: ['simulation', id],
+    queryFn: () => apiClient.getSimulation(id!),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && (data.status === 'done' || data.status === 'failed')) return false;
+      return 700; // Poll every 700ms while running
+    }
+  });
+};
+
+export const useSimulationHistory = () => {
+  return useQuery({
+    queryKey: ['simulations'],
+    queryFn: apiClient.listSimulations
   });
 };
