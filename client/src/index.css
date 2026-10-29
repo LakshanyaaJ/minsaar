@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --page: #EEF0F3;
+    --card: #FFFFFF;
+    --ink: #15171B;
+    --ink-2: #5B616B;
+    --ink-3: #9AA0A9;
+    --line: #E4E7EC;
+    --accent: #F26A2E;
+    --accent-soft: #FDE9DF;
+    --amber: #F4C542;
+    --mint: #7ADBA0;
+    --mint-soft: #DDF5E7;
+    --sky: #8CD8F0;
+    --rose: #E5484D;
+  }
+  
+  body {
+    @apply bg-page text-ink antialiased;
+  }
+
+  /* tabular-nums on every number globally */
+  * {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus rings for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-page;
+  }
+}
