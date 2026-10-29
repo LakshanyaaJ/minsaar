@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { LayoutDashboard, Calendar, Thermometer, LineChart, Lightbulb, Search } from 'lucide-react'
+import { LayoutDashboard, Calendar, Thermometer, LineChart, Lightbulb, Search, PlaySquare } from 'lucide-react'
 import { useBuildings } from '../../hooks/queries'
 import { useFiltersStore } from '../../store/filters'
 import { Select } from '../ui/Select'
@@ -11,6 +11,7 @@ const navItems = [
   { name: 'Temperature', path: '/app/temperature', icon: Thermometer },
   { name: 'Insights', path: '/app/insights', icon: LineChart },
   { name: 'Recommendations', path: '/app/recommendations', icon: Lightbulb },
+  { name: 'Simulation', path: '/app/simulation', icon: PlaySquare },
 ]
 
 export function Sidebar() {

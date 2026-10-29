@@ -27,13 +27,14 @@ export function CommandPalette() {
     setSearch('')
   }
 
-  const pages = [
+const pages = [
     { name: 'Overview', path: '/app/overview' },
     { name: 'Schedules', path: '/app/schedules' },
     { name: 'Temperature', path: '/app/temperature' },
     { name: 'Insights', path: '/app/insights' },
     { name: 'Recommendations', path: '/app/recommendations' },
-  ]
+    { name: 'Simulation', path: '/app/simulation' },
+  ] 
 
   const filteredPages = pages.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
   const filteredRooms = (rooms || []).filter(r => r.name.toLowerCase().includes(search.toLowerCase()))
