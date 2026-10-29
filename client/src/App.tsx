@@ -10,6 +10,9 @@ import Temperature from './pages/app/Temperature'
 import Insights from './pages/app/Insights'
 import Recommendations from './pages/app/Recommendations'
 import { useAuthStore } from './store/auth'
+import { lazy } from 'react'
+import Simulation from './pages/app/Simulation'
+
 
 function AuthGuard({ children }: { children: JSX.Element }) {
   const isAuthenticated = useAuthStore(state => state.isAuthenticated)
@@ -35,6 +38,7 @@ function App() {
           <Route path="temperature" element={<Temperature />} />
           <Route path="insights" element={<Insights />} />
           <Route path="recommendations" element={<Recommendations />} />
+          <Route path="simulation" element={<Simulation />} />
         </Route>
 
         <Route path="/dev/components" element={<DevComponents />} />
