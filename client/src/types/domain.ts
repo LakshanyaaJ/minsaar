@@ -1,4 +1,4 @@
-export type DataSource = 'measured' | 'simulated' | 'predicted' | 'estimated';
+export type DataSource = 'measured' | 'simulated' | 'predicted' | 'estimated' | 'uploaded';
 
 export interface Building {
   id: string;
