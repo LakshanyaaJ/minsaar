@@ -1,13 +1,14 @@
 import { Card } from './Card'
 import { SourceTag } from './SourceTag'
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
+import type { DataSource } from '../../types/domain'
 
 interface StatCardProps {
   label: string
   value: string | number
   unit?: string
   delta?: { value: string; trend: 'good' | 'bad' | 'neutral' }
-  source: 'measured' | 'simulated' | 'predicted' | 'estimated'
+  source: DataSource
   sparkline?: React.ReactNode
 }
 
