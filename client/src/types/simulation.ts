@@ -1,4 +1,4 @@
-import type { Anomaly, DataSource } from './domain';
+import type { Anomaly } from './domain';
 
 export interface SimulationRunConfig {
   intervalHours: number; // 1 to 168

@@ -10,7 +10,6 @@ import Temperature from './pages/app/Temperature'
 import Insights from './pages/app/Insights'
 import Recommendations from './pages/app/Recommendations'
 import { useAuthStore } from './store/auth'
-import { lazy } from 'react'
 import Simulation from './pages/app/Simulation'
 
 

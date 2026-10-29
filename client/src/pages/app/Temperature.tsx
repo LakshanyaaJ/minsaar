@@ -13,11 +13,10 @@ import { Select } from '../../components/ui/Select'
 import { NumberField } from '../../components/inputs/NumberField'
 import { StatCard } from '../../components/ui/StatCard'
 import { PillSwitcher } from '../../components/ui/PillSwitcher'
-import { SourceTag } from '../../components/ui/SourceTag'
 import { ChartTooltip } from '../../components/charts/ChartTooltip'
 import { EmptyState } from '../../components/ui/EmptyState'
 
-import { useBuildings, useRooms, useSettings, useRecommendations, usePatchRecommendation } from '../../hooks/queries'
+import { useBuildings, useRooms, useRecommendations, usePatchRecommendation } from '../../hooks/queries'
 import { useFiltersStore } from '../../store/filters'
 import { apiClient } from '../../api/client'
 import { useQuery } from '@tanstack/react-query'
@@ -109,7 +108,7 @@ function Gauge({ current, minBound, maxBound, absoluteMin = 16, absoluteMax = 32
 
 
 export default function Temperature() {
-  const { selectedBuildingId, selectedRoomId, setRoom } = useFiltersStore()
+  const { selectedRoomId, setRoom } = useFiltersStore()
   
   const { data: buildings } = useBuildings()
   const { data: rooms } = useRooms()

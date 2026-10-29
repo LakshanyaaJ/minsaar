@@ -1,6 +1,6 @@
 import type { SimulationRunConfig, SimulationStep, SimulationSummary } from '../types/simulation';
 import type { Anomaly } from '../types/domain';
-import { kwh, savings, costSavings } from '../lib/energy';
+import { kwh, costSavings } from '../lib/energy';
 
 export class MockSimulationEngine {
   public config: SimulationRunConfig;

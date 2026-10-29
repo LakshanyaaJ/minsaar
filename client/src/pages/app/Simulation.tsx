@@ -1,31 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  UploadCloud, FileText, X, Check, AlertCircle, Play, 
-  Download, ArrowRight, StopCircle, Info, Calendar
+  UploadCloud, FileText, X, Check, AlertCircle,
+  Download, StopCircle,
 } from 'lucide-react'
 import { 
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis
+  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+  Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
 
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { StatCard } from '../../components/ui/StatCard'
-import { SourceTag } from '../../components/ui/SourceTag'
-import { SeverityDot } from '../../components/ui/SeverityDot'
 import { PillSwitcher } from '../../components/ui/PillSwitcher'
 import { NumberField } from '../../components/inputs/NumberField'
 import { ChartTooltip } from '../../components/charts/ChartTooltip'
-import { EmptyState } from '../../components/ui/EmptyState'
-import { Skeleton } from '../../components/ui/feedback/Skeleton'
 
 import { useSimulationStore } from '../../store/simulation'
 import { useCreateSimulation, useSimulation, useSimulationHistory, useSettings } from '../../hooks/queries'
 import { validateReadingsCsv, validateScheduleCsv, generateSampleReadingsCsv, generateSampleScheduleCsv } from '../../lib/csv'
 import type { CsvValidationResult } from '../../lib/csv'
-import type { SimulationJob, SimulationStep } from '../../types/simulation'
 
 // --- Motion Variants ---
 const containerVariants = {

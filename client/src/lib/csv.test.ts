@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateReadingsCsv, validateScheduleCsv, generateSampleReadingsCsv, generateSampleScheduleCsv } from './csv';
+import { validateReadingsCsv, validateScheduleCsv, generateSampleReadingsCsv } from './csv';
 
 describe('CSV Validation', () => {
   it('validates a correct sample readings CSV', () => {

@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import type { Schedule, Recommendation } from '../types/domain';
-import type { SimulationRunConfig } from '../types/simulation';
 
 export const useOverview = (range: string) => {
   return useQuery({
