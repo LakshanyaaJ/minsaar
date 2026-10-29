@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from numbers import Integral
 from statistics import median
 from typing import Deque, Iterable, Optional
 
@@ -36,7 +37,7 @@ class OccupancyEstimator:
     declaring the room empty.
     """
 
-    def __init__(self, window_size: int = 5, zero_confirmation_samples: int = 3):
+    def __init__(self, window_size: int = 5, zero_confirmation_samples: int = 5):
         if window_size < 1:
             raise ValueError("window_size must be at least 1")
         if zero_confirmation_samples < 1:
@@ -55,11 +56,14 @@ class OccupancyEstimator:
 
     def update(self, detected_count: int, timestamp_seconds: float) -> OccupancyRecord:
         """Add one count and return its smoothed integration record."""
+        if isinstance(detected_count, bool) or not isinstance(detected_count, Integral):
+            raise ValueError("detected_count must be a non-negative integer")
         if detected_count < 0:
             raise ValueError("detected_count cannot be negative")
         if timestamp_seconds < 0:
             raise ValueError("timestamp_seconds cannot be negative")
 
+        detected_count = int(detected_count)
         self._counts.append(detected_count)
         if detected_count == 0:
             self._consecutive_zeros += 1
@@ -70,11 +74,13 @@ class OccupancyEstimator:
         estimate = int(median(self._counts))
         if self._consecutive_zeros >= self.zero_confirmation_samples:
             self._is_empty = True
-            estimate = 0
 
-        status = "empty" if self._is_empty else (
-            "occupied" if estimate > 0 or detected_count > 0 else "possibly empty"
-        )
+        if self._is_empty:
+            status = "empty"
+        elif detected_count > 0:
+            status = "occupied"
+        else:
+            status = "possibly_empty"
         return OccupancyRecord(
             timestamp_seconds=float(timestamp_seconds),
             detected_count=detected_count,

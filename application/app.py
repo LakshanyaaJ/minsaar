@@ -11,8 +11,8 @@ from pathlib import Path
 import cv2
 import streamlit as st
 
-from detector import PersonDetector
-from video_processor import SUPPORTED_EXTENSIONS, process_video
+from application.detector import PersonDetector
+from application.video_processor import SUPPORTED_EXTENSIONS, process_video
 
 
 st.set_page_config(page_title="Classroom Occupancy Counter", layout="wide")
@@ -22,11 +22,11 @@ st.caption("YOLO person detection with rolling-median occupancy smoothing.")
 uploaded = st.file_uploader("Upload a classroom video", type=["mp4", "avi", "mov"])
 with st.sidebar:
     st.header("Processing settings")
-    model_path = st.text_input("YOLO weights", "yolo11n.pt")
+    model_path = st.text_input("YOLO weights", "models/yolo11n.pt")
     confidence = st.slider("Detection confidence", 0.0, 1.0, 0.25, 0.05)
     sample_every = st.number_input("Process every Nth frame", min_value=1, value=1)
     window_size = st.number_input("Rolling median window", min_value=1, value=5)
-    zero_samples = st.number_input("Zero samples before empty", min_value=1, value=3)
+    zero_samples = st.number_input("Zero samples before empty", min_value=1, value=5)
 
 if uploaded is not None and Path(uploaded.name).suffix.lower() not in SUPPORTED_EXTENSIONS:
     st.error("Unsupported file type. Upload an MP4, AVI, or MOV file.")
@@ -49,11 +49,10 @@ if uploaded is not None and st.button("Start processing", type="primary"):
         def display_sample(frame, record, processed, total):
             records.append(record.as_dict())
             preview.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
-            metrics.metric("Detected people", record.detected_count)
-            metrics.write(
-                f"Occupancy estimate: **{record.occupancy_estimate}**  \n"
-                f"Status: **{record.occupancy_status}**"
-            )
+            detected_metric, estimate_metric = metrics.columns(2)
+            detected_metric.metric("Detected people", record.detected_count)
+            estimate_metric.metric("Occupancy estimate", record.occupancy_estimate)
+            metrics.write(f"Status: **{record.occupancy_status}**")
             if total:
                 progress.progress(min(processed * int(sample_every) / total, 1.0))
 

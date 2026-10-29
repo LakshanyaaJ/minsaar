@@ -7,8 +7,8 @@ from typing import Any, Callable, Optional
 
 import cv2
 
-from detector import PersonDetector
-from occupancy import OccupancyEstimator, OccupancyRecord
+from application.detector import PersonDetector
+from application.occupancy import OccupancyEstimator, OccupancyRecord
 
 SUPPORTED_EXTENSIONS = {".mp4", ".avi", ".mov"}
 
@@ -30,7 +30,7 @@ def process_video(
     confidence: float = 0.25,
     sample_every: int = 1,
     window_size: int = 5,
-    zero_confirmation_samples: int = 3,
+    zero_confirmation_samples: int = 5,
     on_sample: Optional[Callable[[Any, OccupancyRecord, int, int], None]] = None,
 ) -> list[dict]:
     """Process a video without loading it into memory and return occupancy records.

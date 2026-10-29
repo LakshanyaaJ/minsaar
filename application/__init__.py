@@ -1,0 +1,1 @@
+"""Classroom occupancy detection application package."""
