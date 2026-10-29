@@ -1,0 +1,14 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Minimal stub to test DB connection. Full schema comes in 2.2.
+model Health {
+  id        Int      @id @default(autoincrement())
+  updatedAt DateTime @updatedAt
+}
