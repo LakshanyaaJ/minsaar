@@ -17,7 +17,12 @@ class OccupancyRecord:
     detected_count: int
     occupancy_estimate: int
     occupancy_status: str
-    is_empty: bool
+    empty_confirmation_status: bool
+
+    @property
+    def is_empty(self) -> bool:
+        """Retain the existing convenience property for callers and tests."""
+        return self.empty_confirmation_status
 
     def as_dict(self) -> dict:
         return {
@@ -25,7 +30,7 @@ class OccupancyRecord:
             "detected_count": self.detected_count,
             "occupancy_estimate": self.occupancy_estimate,
             "occupancy_status": self.occupancy_status,
-            "is_empty": self.is_empty,
+            "empty_confirmation_status": self.empty_confirmation_status,
         }
 
 
@@ -86,7 +91,7 @@ class OccupancyEstimator:
             detected_count=detected_count,
             occupancy_estimate=estimate,
             occupancy_status=status,
-            is_empty=self._is_empty,
+            empty_confirmation_status=self._is_empty,
         )
 
     def process(self, counts: Iterable[int], timestamps: Optional[Iterable[float]] = None) -> list[OccupancyRecord]:
