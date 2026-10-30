@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: minsaar-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: minsaar
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - minsaar_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d minsaar"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  ml:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: minsaar-ml
+    environment:
+      PORT: 5001
+      ANOMALY_MODEL_PATH: /models/isolation_forest.joblib
+      FORECAST_MODEL_PATH: /models/forecast_model.joblib
+      FORECAST_META_PATH: /models/pipeline_metadata.json
+    volumes:
+      - ./ml_service/models/isolation_forest.joblib:/models/isolation_forest.joblib:ro
+      - ./ml_service/models/forecast_model.joblib:/models/forecast_model.joblib:ro
+      - ./ml_service/models/pipeline_metadata.json:/models/pipeline_metadata.json:ro
+    ports:
+      - "5001:5001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: minsaar-api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/minsaar?schema=public
+      JWT_SECRET: minsaar-production-jwt-secret-key-32-chars
+      WEB_ORIGIN: http://localhost:8080
+      DEVICE_API_KEY: minsaar-device-secret-key-2026
+      APP_TIMEZONE: Asia/Kolkata
+      ML_SERVICE_URL: http://ml:5001
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/server.js"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: minsaar-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  minsaar_postgres_data:
+    name: minsaar_postgres_data

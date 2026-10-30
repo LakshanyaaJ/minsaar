@@ -3,24 +3,61 @@ import type { Building, Room, AcUnit, Schedule, Recommendation, Settings, Overvi
 import type { SimulationJob, SimulationRunConfig } from '../types/simulation';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const apiClient = {
+  login: async (email: string, passwordPlain: string): Promise<{ user: any; token: string }> => {
+    if (USE_MOCK) {
+      await delay(200);
+      return { user: { email, name: email.split('@')[0], role: 'ADMIN' }, token: 'mock-jwt-token' };
+    }
+    const res = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password: passwordPlain }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Login failed');
+    }
+    return res.json();
+  },
+
+  logout: async (): Promise<void> => {
+    if (USE_MOCK) {
+      await delay(100);
+      return;
+    }
+    await fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+  },
+
+  getMe: async (): Promise<any> => {
+    if (USE_MOCK) {
+      return { user: { email: 'admin@campus.edu', name: 'Admin', role: 'ADMIN' } };
+    }
+    const res = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Not authenticated');
+    return res.json();
+  },
+
   getOverview: async (range: string): Promise<OverviewMetrics> => {
     if (USE_MOCK) {
       await delay(300 + Math.random() * 300);
       const data = store.get();
-      // Dummy aggregation for mock response
       return {
         totalKwh: 142.6,
         estSavings: 4250,
         anomaliesCount: data.anomalies.length,
         unitsActive: 12,
-        occupancyRate: 68
+        occupancyRate: 68,
       };
     }
-    return fetch(`${API_URL}/overview?range=${range}`).then(r => r.json());
+    return fetch(`${API_URL}/overview?range=${range}`, { credentials: 'include' }).then(r => r.json());
   },
 
   getBuildings: async (): Promise<Building[]> => {
@@ -28,7 +65,7 @@ export const apiClient = {
       await delay(300);
       return store.get().buildings;
     }
-    return fetch(`${API_URL}/buildings`).then(r => r.json());
+    return fetch(`${API_URL}/buildings`, { credentials: 'include' }).then(r => r.json());
   },
 
   getRooms: async (): Promise<Room[]> => {
@@ -36,7 +73,7 @@ export const apiClient = {
       await delay(300);
       return store.get().rooms;
     }
-    return fetch(`${API_URL}/rooms`).then(r => r.json());
+    return fetch(`${API_URL}/rooms`, { credentials: 'include' }).then(r => r.json());
   },
 
   getAcUnits: async (): Promise<AcUnit[]> => {
@@ -44,7 +81,7 @@ export const apiClient = {
       await delay(300);
       return store.get().acUnits;
     }
-    return fetch(`${API_URL}/ac-units`).then(r => r.json());
+    return fetch(`${API_URL}/ac-units`, { credentials: 'include' }).then(r => r.json());
   },
 
   getSchedules: async (): Promise<Schedule[]> => {
@@ -52,7 +89,7 @@ export const apiClient = {
       await delay(300);
       return store.get().schedules;
     }
-    return fetch(`${API_URL}/schedules`).then(r => r.json());
+    return fetch(`${API_URL}/schedules`, { credentials: 'include' }).then(r => r.json());
   },
 
   upsertSchedule: async (schedule: Schedule): Promise<void> => {
@@ -61,7 +98,12 @@ export const apiClient = {
       store.upsertSchedule(schedule);
       return;
     }
-    return fetch(`${API_URL}/schedules`, { method: 'POST', body: JSON.stringify(schedule) }).then(r => r.json());
+    return fetch(`${API_URL}/schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(schedule),
+    }).then(r => r.json());
   },
 
   getRecommendations: async (): Promise<Recommendation[]> => {
@@ -69,7 +111,7 @@ export const apiClient = {
       await delay(300);
       return store.get().recommendations;
     }
-    return fetch(`${API_URL}/recommendations`).then(r => r.json());
+    return fetch(`${API_URL}/recommendations`, { credentials: 'include' }).then(r => r.json());
   },
 
   patchRecommendation: async (id: string, updates: Partial<Recommendation>): Promise<void> => {
@@ -78,7 +120,12 @@ export const apiClient = {
       store.updateRecommendation(id, updates);
       return;
     }
-    return fetch(`${API_URL}/recommendations/${id}`, { method: 'PATCH', body: JSON.stringify(updates) }).then(r => r.json());
+    return fetch(`${API_URL}/recommendations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(updates),
+    }).then(r => r.json());
   },
 
   getSettings: async (): Promise<Settings> => {
@@ -86,7 +133,7 @@ export const apiClient = {
       await delay(300);
       return store.get().settings;
     }
-    return fetch(`${API_URL}/settings`).then(r => r.json());
+    return fetch(`${API_URL}/settings`, { credentials: 'include' }).then(r => r.json());
   },
 
   setTariff: async (tariff: number): Promise<void> => {
@@ -95,30 +142,87 @@ export const apiClient = {
       store.updateSettings({ tariffInrPerKwh: tariff });
       return;
     }
-    return fetch(`${API_URL}/settings/tariff`, { method: 'POST', body: JSON.stringify({ tariff }) }).then(r => r.json());
+    return fetch(`${API_URL}/settings/tariff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ tariff }),
+    }).then(r => r.json());
   },
-  
-  createSimulation: async (payload: { readingsContent: string, scheduleContent: string, config: SimulationRunConfig }): Promise<{ id: string }> => {
+
+  getRoomTemperature: async (roomId: string): Promise<any> => {
+    if (USE_MOCK) {
+      return {
+        roomId,
+        indoorTempC: 22.1,
+        outdoorTempC: 28.4,
+        setpointC: 24,
+        minBoundC: 22,
+        maxBoundC: 25,
+      };
+    }
+    return fetch(`${API_URL}/rooms/${roomId}/temperature`, { credentials: 'include' }).then(r => r.json());
+  },
+
+  setRoomThresholds: async (roomId: string, minTempC: number, maxTempC: number): Promise<any> => {
+    if (USE_MOCK) {
+      return { roomId, minTempC, maxTempC };
+    }
+    return fetch(`${API_URL}/rooms/${roomId}/thresholds`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ minTempC, maxTempC }),
+    }).then(r => r.json());
+  },
+
+  setAcSetpoint: async (acUnitId: string, setpointC: number): Promise<any> => {
+    if (USE_MOCK) {
+      return { acUnitId, setpointC, success: true };
+    }
+    return fetch(`${API_URL}/ac-units/${acUnitId}/setpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ setpointC }),
+    }).then(r => r.json());
+  },
+
+  createSimulation: async (payload: { readingsContent: string; scheduleContent: string; config: SimulationRunConfig }): Promise<{ id: string }> => {
     if (USE_MOCK) {
       await delay(400);
       const id = store.createSimulation(payload.config);
       return { id };
     }
-    // Stub for Phase 2 Form Data upload
+
     const formData = new FormData();
-    formData.append('readingsFile', new Blob([payload.readingsContent], { type: 'text/csv' }));
-    formData.append('scheduleFile', new Blob([payload.scheduleContent], { type: 'text/csv' }));
+    formData.append('readingsFile', new Blob([payload.readingsContent], { type: 'text/csv' }), 'synthetic_demo.csv');
+    formData.append('scheduleFile', new Blob([payload.scheduleContent], { type: 'text/csv' }), 'weekly_schedule.csv');
     formData.append('config', JSON.stringify(payload.config));
-    return fetch(`${API_URL}/simulations`, { method: 'POST', body: formData }).then(r => r.json());
+
+    const res = await fetch(`${API_URL}/simulations`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Simulation creation failed');
+    }
+    return res.json();
   },
 
-  getSimulation: async (id: string): Promise<SimulationJob> => {
+  getSimulation: async (id: string, afterStep?: number): Promise<SimulationJob> => {
     if (USE_MOCK) {
       const job = store.getSimulation(id);
-      if (!job) throw new Error("Not found");
+      if (!job) throw new Error('Not found');
       return job;
     }
-    return fetch(`${API_URL}/simulations/${id}`).then(r => r.json());
+    const query = afterStep !== undefined ? `?afterStep=${afterStep}` : '';
+    const res = await fetch(`${API_URL}/simulations/${id}${query}`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Simulation not found');
+    return res.json();
   },
 
   listSimulations: async (): Promise<SimulationJob[]> => {
@@ -126,7 +230,7 @@ export const apiClient = {
       await delay(300);
       return store.listSimulations();
     }
-    return fetch(`${API_URL}/simulations`).then(r => r.json());
+    return fetch(`${API_URL}/simulations`, { credentials: 'include' }).then(r => r.json());
   },
 
   deleteSimulation: async (id: string): Promise<void> => {
@@ -135,6 +239,55 @@ export const apiClient = {
       store.deleteSimulation(id);
       return;
     }
-    return fetch(`${API_URL}/simulations/${id}`, { method: 'DELETE' }).then(r => r.json());
-  }
+    return fetch(`${API_URL}/simulations/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    }).then(r => r.json());
+  },
+
+  pauseReplay: async (id: string): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/pause`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(r => r.json());
+  },
+
+  resumeReplay: async (id: string): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/resume`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(r => r.json());
+  },
+
+  stopReplay: async (id: string): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/stop`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(r => r.json());
+  },
+
+  setReplaySpeed: async (id: string, speed: string): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/speed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ speed }),
+    }).then(r => r.json());
+  },
+
+  seekReplay: async (id: string, targetMinuteIndex: number): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/seek`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ targetMinuteIndex }),
+    }).then(r => r.json());
+  },
+
+  restartReplay: async (id: string): Promise<{ success: boolean }> => {
+    return fetch(`${API_URL}/simulations/${id}/restart`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(r => r.json());
+  },
 };

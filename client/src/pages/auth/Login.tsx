@@ -1,3 +1,4 @@
+import React from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -6,6 +7,7 @@ import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { useAuthStore } from '../../store/auth'
+import { apiClient } from '../../api/client'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -22,9 +24,21 @@ export default function Login() {
     resolver: zodResolver(loginSchema)
   })
 
-  const onSubmit = (data: LoginForm) => {
-    login(data.email)
-    navigate('/app/overview')
+  const [serverError, setServerError] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  const onSubmit = async (data: LoginForm) => {
+    try {
+      setServerError(null)
+      setLoading(true)
+      const res = await apiClient.login(data.email, data.password)
+      login(data.email)
+      navigate('/app/overview')
+    } catch (err: any) {
+      setServerError(err.message || 'Login failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -53,7 +67,15 @@ export default function Login() {
               {errors.password && <p className="text-xs text-rose mt-1">{errors.password.message}</p>}
             </div>
             
-            <Button type="submit" className="w-full mt-2">Sign in</Button>
+            {serverError && (
+              <div className="p-3 bg-rose/10 border border-rose/30 rounded text-xs text-rose">
+                {serverError}
+              </div>
+            )}
+            
+            <Button type="submit" className="w-full mt-2" disabled={loading}>
+              {loading ? 'Signing in...' : 'Sign in'}
+            </Button>
           </form>
         </Card>
       </div>
