@@ -1,6 +1,20 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { simulationService } from '../services/simulation.service';
-import { BadRequest } from '../utils/errors';
+import { BadRequest, NotFound } from '../utils/errors';
+
+function getSyntheticDataDir(): string {
+  const candidates = [
+    path.resolve(process.cwd(), '../synthetic_data'),
+    path.resolve(process.cwd(), 'synthetic_data'),
+    path.resolve(__dirname, '../../../synthetic_data'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
 
 export class SimulationController {
   async createSimulation(req: Request, res: Response) {
@@ -42,8 +56,18 @@ export class SimulationController {
       scheduleContent = req.body.scheduleContent;
     }
 
+    // 4. If scheduleContent is missing, fallback to synthetic_data/weekly_schedule.csv
+    if (readingsContent && !scheduleContent) {
+      const synthDir = getSyntheticDataDir();
+      const synthSchedulePath = path.join(synthDir, 'weekly_schedule.csv');
+      if (fs.existsSync(synthSchedulePath)) {
+        scheduleContent = fs.readFileSync(synthSchedulePath, 'utf-8');
+        scheduleFilename = 'weekly_schedule.csv';
+      }
+    }
+
     if (!readingsContent || !scheduleContent) {
-      throw new BadRequest('Both readingsFile and scheduleFile must be provided');
+      throw new BadRequest('Telemetry readings CSV must be provided');
     }
 
     const result = await simulationService.createSimulation(
@@ -56,6 +80,43 @@ export class SimulationController {
     );
 
     res.status(201).json(result);
+  }
+
+  async loadDemoPreset(req: Request, res: Response) {
+    const synthDir = getSyntheticDataDir();
+    const readingsPath = path.join(synthDir, 'synthetic_demo.csv');
+    const schedulePath = path.join(synthDir, 'weekly_schedule.csv');
+
+    if (!fs.existsSync(readingsPath) || !fs.existsSync(schedulePath)) {
+      throw new NotFound('Demo files not found on server in synthetic_data');
+    }
+
+    const readingsContent = fs.readFileSync(readingsPath, 'utf-8');
+    const scheduleContent = fs.readFileSync(schedulePath, 'utf-8');
+
+    res.json({
+      success: true,
+      readingsContent,
+      scheduleContent,
+      readingsFilename: 'synthetic_demo.csv',
+      scheduleFilename: 'weekly_schedule.csv',
+    });
+  }
+
+  async getDemoFiles(req: Request, res: Response) {
+    const synthDir = getSyntheticDataDir();
+    const { type } = req.query;
+    const filename = type === 'schedule' ? 'weekly_schedule.csv' : 'synthetic_demo.csv';
+    const filePath = path.join(synthDir, filename);
+
+    if (!fs.existsSync(filePath)) {
+      throw new NotFound(`Demo file ${filename} not found`);
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(content);
   }
 
   async getSimulation(req: Request, res: Response) {
