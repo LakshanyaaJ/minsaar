@@ -271,6 +271,8 @@ export class ReplayEngineService {
           if (i % 30 === 0) {
             session.ruleAnomaliesCount++;
             const anomId = `anom_${session.jobId}_${hallId}_${i}_phantom`;
+            const wasteKwh = Number((readingKwh * 60).toFixed(2));
+            const inr = Number((wasteKwh * session.config.tariffInrPerKwh).toFixed(2));
             const anom: SimulationAnomalyEvent = {
               id: anomId,
               hallId,
@@ -278,12 +280,25 @@ export class ReplayEngineService {
               acUnitId: `ac_${hallId}`,
               timestamp: currentTimestampStr,
               category: 'runtime_after_hours',
+              anomalyTitle: 'Phantom After-Hours AC Operation',
               severity: 'critical',
               detectionMethod: 'rule',
-              observedKwh: Number((readingKwh * 60).toFixed(2)),
+              observedKwh: wasteKwh,
               expectedKwh: 0,
-              explanation: `Hall unscheduled and vacant while AC active at ${wholePowerKw.toFixed(1)} kW power draw.`,
-              action: 'Shutdown AC and enforce automated schedule interlock.',
+              wasteKwh,
+              financialImpactInr: inr,
+              explanation: `AC remained active at ${wholePowerKw.toFixed(1)} kW power draw while ${hallName} was unscheduled and completely empty (0 occupants).`,
+              rootCause: 'Lack of automated BMS occupancy schedule interlock; manual override switch left ON without occupancy confirmation.',
+              action: 'Shutdown AC and enforce automated schedule interlock with a 10-minute vacation grace period.',
+              sensorSnapshot: {
+                indoorTempC: indoorTemp,
+                outdoorTempC: outdoorTemp,
+                setpointC: setpoint,
+                occupancy: 0,
+                powerKw: wholePowerKw,
+                coolingEffectivenessPct: effectiveness,
+                scheduledOpen: false,
+              },
             };
             session.anomalies.push(anom);
             latestAnomaliesInTick.push(anom);
@@ -295,7 +310,7 @@ export class ReplayEngineService {
               hallName,
               acUnitId: `ac_${hallId}`,
               timestamp: currentTimestampStr,
-              currentState: 'ON (Unscheduled)',
+              currentState: 'ON (Unscheduled / Vacant)',
               command: 'OFF',
               scheduleContext: 'Unscheduled / Vacant',
               occupancy: occ,
@@ -312,7 +327,93 @@ export class ReplayEngineService {
           }
         }
 
-        // Condition 2: Over-cooling below comfort threshold
+        // Condition 2: Equipment cooling degradation (low heat transfer effectiveness)
+        if (acOn && effectiveness < 75) {
+          const degradedWaste = readingKwh * (1 - effectiveness / 100);
+          hallStat.totalWastedKwh += degradedWaste;
+          session.totalWastedKwh += degradedWaste;
+
+          if (i % 25 === 0) {
+            session.ruleAnomaliesCount++;
+            const anomId = `anom_${session.jobId}_${hallId}_${i}_degrade`;
+            const wasteKwh = Number((degradedWaste * 60).toFixed(2));
+            const inr = Number((wasteKwh * session.config.tariffInrPerKwh).toFixed(2));
+            const anom: SimulationAnomalyEvent = {
+              id: anomId,
+              hallId,
+              hallName,
+              acUnitId: `ac_${hallId}`,
+              timestamp: currentTimestampStr,
+              category: 'cooling_degradation',
+              anomalyTitle: 'Severe Cooling Performance Degradation',
+              severity: effectiveness < 50 ? 'critical' : 'high',
+              detectionMethod: 'rule',
+              observedKwh: Number((readingKwh * 60).toFixed(2)),
+              expectedKwh: Number(((readingKwh - degradedWaste) * 60).toFixed(2)),
+              wasteKwh,
+              financialImpactInr: inr,
+              explanation: `Cooling heat transfer efficiency dropped to ${effectiveness.toFixed(1)}% while compressor drew ${wholePowerKw.toFixed(1)} kW. Room temperature (${indoorTemp.toFixed(1)}°C) failed to converge towards ${setpoint}°C setpoint.`,
+              rootCause: 'Severe condenser coil fouling, air filter blockage, or refrigerant charge leakage causing abnormal thermodynamic loss and compressor strain.',
+              action: 'Dispatch urgent HVAC maintenance work order for condenser coil wash, refrigerant leak inspection, and filter replacement.',
+              sensorSnapshot: {
+                indoorTempC: indoorTemp,
+                outdoorTempC: outdoorTemp,
+                setpointC: setpoint,
+                occupancy: occ,
+                powerKw: wholePowerKw,
+                coolingEffectivenessPct: effectiveness,
+                scheduledOpen: scheduledOpen,
+              },
+            };
+            session.anomalies.push(anom);
+            latestAnomaliesInTick.push(anom);
+          }
+        }
+
+        // Condition 3: Weekend unscheduled campus operation
+        const isWeekend = row.is_weekend === '1' || row.is_weekend === 1;
+        if (isWeekend && acOn && !scheduledOpen) {
+          hallStat.totalWastedKwh += readingKwh;
+          session.totalWastedKwh += readingKwh;
+
+          if (i % 30 === 0) {
+            session.ruleAnomaliesCount++;
+            const anomId = `anom_${session.jobId}_${hallId}_${i}_weekend`;
+            const wasteKwh = Number((readingKwh * 60).toFixed(2));
+            const inr = Number((wasteKwh * session.config.tariffInrPerKwh).toFixed(2));
+            const anom: SimulationAnomalyEvent = {
+              id: anomId,
+              hallId,
+              hallName,
+              acUnitId: `ac_${hallId}`,
+              timestamp: currentTimestampStr,
+              category: 'weekend_unscheduled',
+              anomalyTitle: 'Unscheduled Weekend Campus Run',
+              severity: 'critical',
+              detectionMethod: 'rule',
+              observedKwh: wasteKwh,
+              expectedKwh: 0,
+              wasteKwh,
+              financialImpactInr: inr,
+              explanation: `AC unit running on weekend in ${hallName} with entire campus closed and zero occupants (0 persons).`,
+              rootCause: 'BMS master scheduler failed to respect academic weekend calendar exceptions, erroneously triggering weekday pre-conditioning profiles.',
+              action: 'Apply weekend calendar lockout in BMS controller and deactivate air handler fan coils immediately.',
+              sensorSnapshot: {
+                indoorTempC: indoorTemp,
+                outdoorTempC: outdoorTemp,
+                setpointC: setpoint,
+                occupancy: 0,
+                powerKw: wholePowerKw,
+                coolingEffectivenessPct: effectiveness,
+                scheduledOpen: false,
+              },
+            };
+            session.anomalies.push(anom);
+            latestAnomaliesInTick.push(anom);
+          }
+        }
+
+        // Condition 4: Over-cooling below comfort threshold
         if (scheduledOpen && indoorTemp < 22 && acOn) {
           const excessWaste = readingKwh * 0.18;
           hallStat.totalWastedKwh += excessWaste;
@@ -321,6 +422,8 @@ export class ReplayEngineService {
           if (i % 30 === 0) {
             session.ruleAnomaliesCount++;
             const anomId = `anom_${session.jobId}_${hallId}_${i}_overcool`;
+            const wasteKwh = Number((excessWaste * 60).toFixed(2));
+            const inr = Number((wasteKwh * session.config.tariffInrPerKwh).toFixed(2));
             const anom: SimulationAnomalyEvent = {
               id: anomId,
               hallId,
@@ -328,12 +431,25 @@ export class ReplayEngineService {
               acUnitId: `ac_${hallId}`,
               timestamp: currentTimestampStr,
               category: 'setpoint_too_low',
+              anomalyTitle: 'Over-Cooling Below Comfort Threshold',
               severity: 'medium',
               detectionMethod: 'rule',
               observedKwh: Number((readingKwh * 60).toFixed(2)),
               expectedKwh: Number(((readingKwh - excessWaste) * 60).toFixed(2)),
+              wasteKwh,
+              financialImpactInr: inr,
               explanation: `Indoor temperature (${indoorTemp}°C) dropped below 22°C comfort minimum. Excess cooling power wasted.`,
-              action: 'Raise setpoint to 24°C to avoid over-cooling.',
+              rootCause: 'Thermostat setpoint configured below recommended comfort threshold (22-26°C), driving unnecessary compressor workload.',
+              action: 'Raise setpoint to 24°C to avoid over-cooling and eliminate thermal discomfort.',
+              sensorSnapshot: {
+                indoorTempC: indoorTemp,
+                outdoorTempC: outdoorTemp,
+                setpointC: setpoint,
+                occupancy: occ,
+                powerKw: wholePowerKw,
+                coolingEffectivenessPct: effectiveness,
+                scheduledOpen: true,
+              },
             };
             session.anomalies.push(anom);
             latestAnomaliesInTick.push(anom);
@@ -405,6 +521,9 @@ export class ReplayEngineService {
           mlClient.detectAnomalies([anomReading]).then(res => {
             if (res && res.results && res.results[0]?.is_anomaly) {
               session.mlAnomaliesCount++;
+              const obs = Number(anomReading.meter_reading.toFixed(2));
+              const exp = Number((obs * 0.45).toFixed(2));
+              const waste = Number((obs - exp).toFixed(2));
               const mlAnom: SimulationAnomalyEvent = {
                 id: `anom_ml_${session.jobId}_${hallId}_${i}`,
                 hallId,
@@ -412,12 +531,25 @@ export class ReplayEngineService {
                 acUnitId: `ac_${hallId}`,
                 timestamp: currentTimestampStr,
                 category: 'model_outlier',
+                anomalyTitle: 'Multi-Variate Building Baseline Outlier',
                 severity: 'high',
                 detectionMethod: 'ml',
-                observedKwh: Number(anomReading.meter_reading.toFixed(2)),
-                expectedKwh: 1.8,
-                explanation: `Model 1 Isolation Forest detected anomaly score ${res.results[0].anomaly_score.toFixed(3)} across 8 ASHRAE building features.`,
-                action: 'Inspect submeter integrity and equipment duty cycling.',
+                observedKwh: obs,
+                expectedKwh: exp,
+                wasteKwh: waste,
+                financialImpactInr: Number((waste * session.config.tariffInrPerKwh).toFixed(2)),
+                explanation: `Model 1 Isolation Forest detected anomaly score ${res.results[0].anomaly_score.toFixed(3)} across 8 ASHRAE building features. Observed ${obs} kWh significantly exceeds weather-normalized baseline for ${hallName}.`,
+                rootCause: 'Abnormal auxiliary electrical load spike or compressor inverter modulation error deviating from historical weather-normalized envelope.',
+                action: 'Inspect submeter current transformer (CT) wiring and compressor modulation curve.',
+                sensorSnapshot: {
+                  indoorTempC: hallStat.currentIndoorTempC,
+                  outdoorTempC: avgOut,
+                  setpointC: hallStat.currentSetpointC,
+                  occupancy: hallStat.currentOccupancy,
+                  powerKw: hallStat.currentPowerKw,
+                  coolingEffectivenessPct: hallStat.coolingEffectivenessPct,
+                  scheduledOpen: scheduledOpen,
+                },
               };
               session.anomalies.push(mlAnom);
             }
@@ -460,6 +592,18 @@ export class ReplayEngineService {
     const wastedEnergy = Number(session.totalWastedKwh.toFixed(2));
     const predictedEnergy = Number((totalEnergy * 0.95).toFixed(2));
 
+    const byHallChart: Record<string, { actualKwh: number; predictedKwh: number; wastedKwh: number }> = {};
+    for (const [hId, stat] of session.hallTotals.entries()) {
+      const hActual = Number(stat.totalEnergyKwh.toFixed(2));
+      const hWasted = Number(stat.totalWastedKwh.toFixed(2));
+      const hPred = Number(Math.max(0, hActual - hWasted * 0.85).toFixed(2));
+      byHallChart[hId] = {
+        actualKwh: hActual,
+        predictedKwh: hPred,
+        wastedKwh: hWasted,
+      };
+    }
+
     const tickData: ReplayTickData = {
       jobId: session.jobId,
       status: 'running',
@@ -486,6 +630,7 @@ export class ReplayEngineService {
         actualKwh: totalEnergy,
         predictedKwh: predictedEnergy,
         wastedKwh: wastedEnergy,
+        byHall: byHallChart,
       },
       latestAnomalies: latestAnomaliesInTick,
       latestRecommendations: latestRecsInTick,

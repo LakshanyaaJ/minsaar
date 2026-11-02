@@ -306,6 +306,8 @@ export class SimulationService {
         setpoint_too_low: 0,
         excessive_power: 0,
         phantom_run: 0,
+        cooling_degradation: 0,
+        weekend_unscheduled: 0,
         model_outlier: 0,
       };
 
@@ -480,6 +482,8 @@ export class SimulationService {
           // Wasted energy and recommendations evaluation
           let hallWastedKwh = 0;
           let isRuleAnomaly = false;
+          const hallAvgEff = chunk.reduce((acc, r) => acc + parseFloat(r.simulated_cooling_effectiveness_pct || '95'), 0) / (chunk.length || 1);
+          const isWeekend = firstRow.is_weekend === '1' || firstRow.is_weekend === 1;
 
           // Condition 1: Phantom run / after-hours operation
           if (!hallScheduledOpen && hallAnyAcOn && hallAvgOcc === 0) {
@@ -495,12 +499,25 @@ export class SimulationService {
               acUnitId: `ac_${hallId}`,
               timestamp: windowStartStr,
               category: 'runtime_after_hours',
+              anomalyTitle: 'Phantom After-Hours AC Operation',
               severity: 'critical',
               detectionMethod: 'rule',
               observedKwh: hallActualKwh,
               expectedKwh: 0.0,
+              wasteKwh: hallActualKwh,
+              financialImpactInr: Number((hallActualKwh * config.tariffInrPerKwh).toFixed(2)),
               explanation: `AC unit was active (${hallActualKwh} kWh) outside scheduled operating hours with zero occupancy.`,
+              rootCause: 'Lack of automated BMS occupancy schedule interlock; manual override switch left active.',
               action: 'Shutdown AC unit immediately and verify automated schedule interlock.',
+              sensorSnapshot: {
+                indoorTempC: Number(hallAvgIndoor.toFixed(1)),
+                outdoorTempC: Number(hallAvgOutdoor.toFixed(1)),
+                setpointC: parseFloat(firstRow.observed_setpoint_c || '24'),
+                occupancy: 0,
+                powerKw: parseFloat(firstRow.whole_hall_power_kw || '10'),
+                coolingEffectivenessPct: hallAvgEff,
+                scheduledOpen: false,
+              },
             };
             stepAnomalies.push(anomEvent);
             if (anomaliesList.length < 50) anomaliesList.push(anomEvent);
@@ -529,7 +546,81 @@ export class SimulationService {
             }
           }
 
-          // Condition 2: Over-cooling setpoint too low
+          // Condition 2: Equipment cooling degradation
+          if (hallAnyAcOn && hallAvgEff < 75) {
+            const degradedWaste = Number((hallActualKwh * (1 - hallAvgEff / 100)).toFixed(3));
+            hallWastedKwh += degradedWaste;
+            isRuleAnomaly = true;
+            anomaliesByCategory.cooling_degradation++;
+
+            const anomId = `anom_${jobId}_${hallId}_${stepIdx}_degrade`;
+            const anomEvent: SimulationAnomalyEvent = {
+              id: anomId,
+              hallId,
+              hallName: firstRow.hall_name || hallId,
+              acUnitId: `ac_${hallId}`,
+              timestamp: windowStartStr,
+              category: 'cooling_degradation',
+              anomalyTitle: 'Severe Cooling Performance Degradation',
+              severity: hallAvgEff < 50 ? 'critical' : 'high',
+              detectionMethod: 'rule',
+              observedKwh: hallActualKwh,
+              expectedKwh: Number((hallActualKwh - degradedWaste).toFixed(3)),
+              wasteKwh: degradedWaste,
+              financialImpactInr: Number((degradedWaste * config.tariffInrPerKwh).toFixed(2)),
+              explanation: `Cooling heat transfer efficiency dropped to ${hallAvgEff.toFixed(1)}% while compressor drew power. Room temperature (${hallAvgIndoor.toFixed(1)}°C) failed to converge towards setpoint.`,
+              rootCause: 'Severe condenser coil fouling, air filter blockage, or refrigerant charge leakage causing abnormal thermodynamic loss and compressor strain.',
+              action: 'Dispatch urgent HVAC maintenance work order for condenser coil wash, refrigerant leak inspection, and filter replacement.',
+              sensorSnapshot: {
+                indoorTempC: Number(hallAvgIndoor.toFixed(1)),
+                outdoorTempC: Number(hallAvgOutdoor.toFixed(1)),
+                setpointC: parseFloat(firstRow.observed_setpoint_c || '24'),
+                occupancy: Math.round(hallAvgOcc),
+                powerKw: parseFloat(firstRow.whole_hall_power_kw || '12'),
+                coolingEffectivenessPct: hallAvgEff,
+                scheduledOpen: hallScheduledOpen,
+              },
+            };
+            stepAnomalies.push(anomEvent);
+            if (anomaliesList.length < 50) anomaliesList.push(anomEvent);
+          }
+
+          // Condition 3: Weekend unscheduled campus operation
+          if (isWeekend && hallAnyAcOn && !hallScheduledOpen) {
+            const anomId = `anom_${jobId}_${hallId}_${stepIdx}_weekend`;
+            anomaliesByCategory.weekend_unscheduled++;
+            const anomEvent: SimulationAnomalyEvent = {
+              id: anomId,
+              hallId,
+              hallName: firstRow.hall_name || hallId,
+              acUnitId: `ac_${hallId}`,
+              timestamp: windowStartStr,
+              category: 'weekend_unscheduled',
+              anomalyTitle: 'Unscheduled Weekend Campus Run',
+              severity: 'critical',
+              detectionMethod: 'rule',
+              observedKwh: hallActualKwh,
+              expectedKwh: 0.0,
+              wasteKwh: hallActualKwh,
+              financialImpactInr: Number((hallActualKwh * config.tariffInrPerKwh).toFixed(2)),
+              explanation: `AC unit was active on weekend (${hallActualKwh} kWh) with campus closed and zero occupants.`,
+              rootCause: 'BMS master scheduler failed to respect academic weekend calendar exceptions, erroneously triggering weekday pre-conditioning profiles.',
+              action: 'Apply weekend calendar lockout in BMS controller and deactivate air handler fan coils immediately.',
+              sensorSnapshot: {
+                indoorTempC: Number(hallAvgIndoor.toFixed(1)),
+                outdoorTempC: Number(hallAvgOutdoor.toFixed(1)),
+                setpointC: parseFloat(firstRow.observed_setpoint_c || '24'),
+                occupancy: 0,
+                powerKw: parseFloat(firstRow.whole_hall_power_kw || '10'),
+                coolingEffectivenessPct: hallAvgEff,
+                scheduledOpen: false,
+              },
+            };
+            stepAnomalies.push(anomEvent);
+            if (anomaliesList.length < 50) anomaliesList.push(anomEvent);
+          }
+
+          // Condition 4: Over-cooling setpoint too low
           if (hallScheduledOpen && hallAvgIndoor < minComfort && hallAnyAcOn) {
             const excessWaste = Number((hallActualKwh * 0.18).toFixed(3));
             hallWastedKwh += excessWaste;
@@ -544,12 +635,25 @@ export class SimulationService {
               acUnitId: `ac_${hallId}`,
               timestamp: windowStartStr,
               category: 'setpoint_too_low',
+              anomalyTitle: 'Over-Cooling Below Comfort Threshold',
               severity: 'medium',
               detectionMethod: 'rule',
               observedKwh: hallActualKwh,
               expectedKwh: Number((hallActualKwh - excessWaste).toFixed(3)),
+              wasteKwh: excessWaste,
+              financialImpactInr: Number((excessWaste * config.tariffInrPerKwh).toFixed(2)),
               explanation: `Hall indoor temperature (${hallAvgIndoor.toFixed(1)}°C) dropped below the ${minComfort}°C minimum threshold, wasting energy on excessive cooling.`,
+              rootCause: 'Thermostat setpoint configured below recommended comfort threshold (22-26°C), driving unnecessary compressor workload.',
               action: 'Adjust thermostat setpoint up to 24°C to maintain comfort without over-cooling.',
+              sensorSnapshot: {
+                indoorTempC: Number(hallAvgIndoor.toFixed(1)),
+                outdoorTempC: Number(hallAvgOutdoor.toFixed(1)),
+                setpointC: parseFloat(firstRow.observed_setpoint_c || '21'),
+                occupancy: Math.round(hallAvgOcc),
+                powerKw: parseFloat(firstRow.whole_hall_power_kw || '8'),
+                coolingEffectivenessPct: hallAvgEff,
+                scheduledOpen: true,
+              },
             };
             stepAnomalies.push(anomEvent);
             if (anomaliesList.length < 50) anomaliesList.push(anomEvent);
@@ -579,10 +683,11 @@ export class SimulationService {
             }
           }
 
-          // Condition 3: ML Anomaly Outlier
+          // Condition 5: ML Anomaly Outlier
           if (isMLAnomaly) {
             anomaliesByCategory.model_outlier++;
             const anomId = `anom_${jobId}_${hallId}_${stepIdx}_ml`;
+            const mlWaste = Number((hallActualKwh * 0.5).toFixed(3));
             const anomEvent: SimulationAnomalyEvent = {
               id: anomId,
               hallId,
@@ -590,12 +695,25 @@ export class SimulationService {
               acUnitId: `ac_${hallId}`,
               timestamp: windowStartStr,
               category: 'model_outlier',
+              anomalyTitle: 'Multi-Variate Building Baseline Outlier',
               severity: 'high',
               detectionMethod: 'ml',
               observedKwh: hallActualKwh,
               expectedKwh: hallPredictedKwh,
+              wasteKwh: mlWaste,
+              financialImpactInr: Number((mlWaste * config.tariffInrPerKwh).toFixed(2)),
               explanation: `Isolation Forest flagged consumption pattern (${hallActualKwh} kWh) as statistically anomalous relative to outdoor weather (${hallAvgOutdoor.toFixed(1)}°C) and building parameters.`,
+              rootCause: 'Abnormal auxiliary electrical load spike or compressor inverter modulation error deviating from historical weather-normalized envelope.',
               action: 'Inspect compressor cycling and submeter wiring for electrical faults.',
+              sensorSnapshot: {
+                indoorTempC: Number(hallAvgIndoor.toFixed(1)),
+                outdoorTempC: Number(hallAvgOutdoor.toFixed(1)),
+                setpointC: parseFloat(firstRow.observed_setpoint_c || '24'),
+                occupancy: Math.round(hallAvgOcc),
+                powerKw: parseFloat(firstRow.whole_hall_power_kw || '10'),
+                coolingEffectivenessPct: hallAvgEff,
+                scheduledOpen: hallScheduledOpen,
+              },
             };
             stepAnomalies.push(anomEvent);
             if (anomaliesList.length < 50) anomaliesList.push(anomEvent);
