@@ -1,0 +1,118 @@
+{
+  "created_at_utc": "2026-10-29T14:40:11.917131+00:00",
+  "artifact": {
+    "file_name": "isolation_forest.joblib",
+    "relative_path": "models\\isolation_forest.joblib",
+    "format": "joblib-serialized scikit-learn Pipeline"
+  },
+  "features": [
+    "meter_reading",
+    "air_temperature",
+    "dew_temperature",
+    "hour_of_day",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "square_feet"
+  ],
+  "feature_order": [
+    "meter_reading",
+    "air_temperature",
+    "dew_temperature",
+    "hour_of_day",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "square_feet"
+  ],
+  "preprocessing": [
+    {
+      "step": "imputer",
+      "class": "sklearn.impute.SimpleImputer",
+      "strategy": "median",
+      "fit_partition": "chronological training partition only"
+    },
+    {
+      "step": "scaler",
+      "class": "sklearn.preprocessing.StandardScaler",
+      "fit_partition": "chronological training partition only"
+    }
+  ],
+  "model": {
+    "class": "sklearn.ensemble.IsolationForest",
+    "n_estimators": 100,
+    "contamination": 0.05,
+    "random_state": 42,
+    "n_jobs": -1,
+    "max_samples": "auto",
+    "max_samples_fitted": 256
+  },
+  "training": {
+    "training_rows": 505932,
+    "heldout_rows": 126483,
+    "all_valid_electricity_rows": 632415,
+    "train_fraction": 0.8,
+    "split": "stable chronological 80/20 row split",
+    "training_start": "2016-01-01T00:00:00",
+    "training_end": "2016-01-16T05:00:00",
+    "heldout_start": "2016-01-16T05:00:00",
+    "heldout_end": "2016-01-20T00:00:00",
+    "ground_truth_anomaly_labels_available": false
+  },
+  "source_coverage": {
+    "train_csv_rows_available": 1048575,
+    "processed_feature_timestamp_start": "2016-01-01T00:00:00",
+    "processed_feature_timestamp_end": "2016-01-20T00:00:00",
+    "full_official_dataset_verified": false,
+    "note": "The run processes all valid electricity rows in the local train.csv. Its completeness against the full official ASHRAE release has not been verified."
+  },
+  "datasets": {
+    "train.csv": {
+      "file_name": "train.csv",
+      "size_bytes": 31840201,
+      "data_rows": 1048575,
+      "columns": [
+        "building_id",
+        "meter",
+        "timestamp",
+        "meter_reading"
+      ]
+    },
+    "building_metadata.csv": {
+      "file_name": "building_metadata.csv",
+      "size_bytes": 45527,
+      "data_rows": 1449,
+      "columns": [
+        "site_id",
+        "building_id",
+        "primary_use",
+        "square_feet",
+        "year_built",
+        "floor_count"
+      ]
+    },
+    "weather_train.csv": {
+      "file_name": "weather_train.csv",
+      "size_bytes": 7450075,
+      "data_rows": 139773,
+      "columns": [
+        "site_id",
+        "timestamp",
+        "air_temperature",
+        "cloud_coverage",
+        "dew_temperature",
+        "precip_depth_1_hr",
+        "sea_level_pressure",
+        "wind_direction",
+        "wind_speed"
+      ]
+    }
+  },
+  "runtime_versions": {
+    "python": "3.13.7",
+    "joblib": "1.5.3",
+    "numpy": "2.2.6",
+    "pandas": "2.3.2",
+    "scikit_learn": "1.8.0"
+  }
+}
