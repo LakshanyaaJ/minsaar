@@ -5,6 +5,7 @@ __pycache__/
 .env
 !.env.example
 .streamlit/secrets.toml
+occupancy_events/
 node_modules/
 dist/
 coverage/

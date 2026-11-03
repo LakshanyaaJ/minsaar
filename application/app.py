@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 import csv
 import io
+import os
 import tempfile
 from pathlib import Path
 
 import cv2
 import streamlit as st
+from dotenv import load_dotenv
 
 from application.detector import PersonDetector
+from application.empty_event_reporter import EmptyEventReporter
 from application.video_processor import SUPPORTED_EXTENSIONS, process_video
 
+load_dotenv()
 
 st.set_page_config(page_title="Classroom Occupancy Counter", layout="wide")
 st.title("Classroom Occupancy Counter")
@@ -23,6 +27,13 @@ uploaded = st.file_uploader("Upload a classroom video", type=["mp4", "avi", "mov
 with st.sidebar:
     st.header("Processing settings")
     model_path = st.text_input("YOLO weights", "models/yolo11n.pt")
+    room_id = st.text_input("Room ID", os.getenv("ROOM_ID", "classroom_01"))
+    request_timeout = st.number_input(
+        "Backend request timeout (seconds)",
+        min_value=0.1,
+        value=float(os.getenv("BACKEND_REQUEST_TIMEOUT_SECONDS", "5")),
+        step=0.5,
+    )
     confidence = st.slider("Detection confidence", 0.0, 1.0, 0.25, 0.05)
     sample_every = st.number_input("Process every Nth frame", min_value=1, value=1)
     window_size = st.number_input("Rolling median window", min_value=1, value=5)
@@ -44,23 +55,41 @@ if uploaded is not None and st.button("Start processing", type="primary"):
         progress = st.progress(0.0)
         preview = st.empty()
         metrics = st.empty()
+        event_status = st.empty()
+        reporter = EmptyEventReporter(
+            storage_dir=Path("occupancy_events"),
+            backend_url=os.getenv("BACKEND_API_URL"),
+            timeout_seconds=float(request_timeout),
+        )
+        reporter.retry_pending()
         records: list[dict] = []
 
         def display_sample(frame, record, processed, total):
-            records.append(record.as_dict())
+            event_path = reporter.observe(record.as_dict(), room_id)
             preview.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
             detected_metric, estimate_metric = metrics.columns(2)
             detected_metric.metric("Detected people", record.detected_count)
             estimate_metric.metric("Occupancy estimate", record.occupancy_estimate)
             metrics.write(f"Status: **{record.occupancy_status}**")
+            if event_path:
+                event_status.info(
+                    f"Confirmed-empty event saved locally: {event_path}. Backend delivery queued."
+                )
+            updates = reporter.get_status_updates()
+            if updates:
+                event_status.write("  \n".join(updates))
             if total:
                 progress.progress(min(processed * int(sample_every) / total, 1.0))
 
-        process_video(
+        records = process_video(
             temp_path, detector=detector, sample_every=int(sample_every),
             window_size=int(window_size), zero_confirmation_samples=int(zero_samples),
             on_sample=display_sample,
         )
+        reporter.wait_for_idle(timeout=float(request_timeout) + 2.0)
+        updates = reporter.get_status_updates()
+        if updates:
+            event_status.write("  \n".join(updates))
         progress.progress(1.0)
         st.subheader("Occupancy over time")
         if records:
@@ -82,6 +111,8 @@ if uploaded is not None and st.button("Start processing", type="primary"):
             st.download_button("Download JSON", json.dumps(records, indent=2), "occupancy.json", "application/json")
         else:
             st.warning("No frames were processed.")
+        for update in reporter.get_status_updates():
+            event_status.write(update)
     except (ValueError, FileNotFoundError, RuntimeError, cv2.error) as exc:
         st.error(f"Processing failed: {exc}")
     finally:

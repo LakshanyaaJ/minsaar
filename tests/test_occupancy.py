@@ -49,6 +49,21 @@ def test_reset_clears_window_and_empty_confirmation_state():
     assert record.is_empty is False
 
 
+def test_record_export_contains_requested_fields_and_confirmation_status():
+    estimator = OccupancyEstimator(zero_confirmation_samples=2)
+    estimator.process([3, 0])
+    record = estimator.update(0, 2)
+
+    exported = record.as_dict()
+    assert exported == {
+        "timestamp_seconds": 2.0,
+        "detected_count": 0,
+        "occupancy_estimate": 0,
+        "occupancy_status": "empty",
+        "empty_confirmation_status": True,
+    }
+
+
 def test_empty_input_is_valid_and_mismatched_timestamps_are_invalid():
     estimator = OccupancyEstimator()
     assert estimator.process([]) == []
