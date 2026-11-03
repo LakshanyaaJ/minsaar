@@ -23,6 +23,8 @@ simulationRoutes.post(
   asyncHandler(simulationController.createSimulation.bind(simulationController))
 );
 
+simulationRoutes.get('/demo/preset', asyncHandler(simulationController.loadDemoPreset.bind(simulationController)));
+simulationRoutes.get('/demo/file', asyncHandler(simulationController.getDemoFiles.bind(simulationController)));
 simulationRoutes.get('/', asyncHandler(simulationController.listSimulations.bind(simulationController)));
 simulationRoutes.get('/:id', asyncHandler(simulationController.getSimulation.bind(simulationController)));
 simulationRoutes.delete('/:id', asyncHandler(simulationController.deleteSimulation.bind(simulationController)));

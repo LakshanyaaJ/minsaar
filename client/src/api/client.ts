@@ -290,4 +290,16 @@ export const apiClient = {
       credentials: 'include',
     }).then(r => r.json());
   },
+
+  loadDemoPreset: async (): Promise<{
+    success: boolean;
+    readingsContent: string;
+    scheduleContent: string;
+    readingsFilename: string;
+    scheduleFilename: string;
+  }> => {
+    return fetch(`${API_URL}/simulations/demo/preset`, {
+      credentials: 'include',
+    }).then(r => r.json());
+  },
 };

@@ -5,11 +5,11 @@ import {
   StopCircle, Play, Pause, Square, RefreshCw, Calendar, Zap, AlertTriangle,
   Clock, Thermometer, Info, ChevronRight, BarChart3,
   Sliders, ShieldCheck, CheckCircle2, History, RotateCcw,
-  Radio, FastForward, Activity, Users, Flame
+  Radio, FastForward, Activity, Users, Flame, Sparkles, Eye, Layers
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip as RechartsTooltip, ResponsiveContainer, Legend
+  Tooltip as RechartsTooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts';
 
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -25,6 +25,8 @@ import { useCreateSimulation, useSimulation, useSimulationHistory, useSettings }
 import { apiClient } from '../../api/client';
 import { validateReadingsCsv, validateScheduleCsv, generateSampleReadingsCsv, generateSampleScheduleCsv } from '../../lib/csv';
 import type { CsvValidationResult } from '../../lib/csv';
+import { processTelemetryData } from '../../lib/telemetry';
+import type { ProcessedTelemetryResult } from '../../lib/telemetry';
 import type {
   HallSimulationMetrics,
   SimulationAnomalyEvent,
@@ -253,6 +255,11 @@ export default function Simulation() {
   const [sortField, setSortField] = useState<'consumption' | 'anomalies' | 'savings'>('savings');
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
+  // Processed telemetry data from uploaded CSV
+  const [processedTelemetry, setProcessedTelemetry] = useState<ProcessedTelemetryResult | null>(null);
+  const [selectedAnomalyModal, setSelectedAnomalyModal] = useState<SimulationAnomalyEvent | null>(null);
+  const [isLoadingDemo, setIsLoadingDemo] = useState<boolean>(false);
+
   // Replay live state
   const [liveTick, setLiveTick] = useState<ReplayTickData | null>(null);
   const [replayStatus, setReplayStatus] = useState<'idle' | 'running' | 'paused' | 'stopped' | 'done'>('idle');
@@ -266,6 +273,14 @@ export default function Simulation() {
   const [liveAnomalies, setLiveAnomalies] = useState<SimulationAnomalyEvent[]>([]);
   const [liveRecommendations, setLiveRecommendations] = useState<SimulationRecommendation[]>([]);
   const [timelineScrubValue, setTimelineScrubValue] = useState<number | null>(null);
+
+  // Sync hall filter with processed telemetry when not actively replaying
+  useEffect(() => {
+    if (processedTelemetry && (replayStatus === 'idle' || replayStatus === 'stopped')) {
+      const pts = processedTelemetry.hourlyPointsByHall[selectedHallFilter] || processedTelemetry.hourlyPointsByHall['ALL'] || [];
+      setLiveChartPoints(pts);
+    }
+  }, [selectedHallFilter, processedTelemetry, replayStatus]);
 
   // Sync settings tariff if default
   useEffect(() => {
@@ -357,6 +372,15 @@ export default function Simulation() {
     const val = validateReadingsCsv(text);
     setReadingsValidation(val);
     draft.setDraft({ readingsFile: file });
+
+    if (val.valid && val.data && val.data.length > 0) {
+      const result = processTelemetryData(val.data, draft.tariff);
+      setProcessedTelemetry(result);
+      const pts = result.hourlyPointsByHall[selectedHallFilter] || result.hourlyPointsByHall['ALL'] || [];
+      setLiveChartPoints(pts);
+      setLiveAnomalies(result.anomalies);
+      setLiveRecommendations(result.recommendations);
+    }
   };
 
   const handleScheduleDrop = async (file: File) => {
@@ -372,6 +396,11 @@ export default function Simulation() {
     draft.setDraft({ readingsFile: null });
     setReadingsValidation(null);
     setReadingsContent('');
+    setProcessedTelemetry(null);
+    setLiveChartPoints([]);
+    setLiveAnomalies([]);
+    setLiveRecommendations([]);
+    setLiveTick(null);
   };
 
   const handleRemoveSchedule = () => {
@@ -380,8 +409,43 @@ export default function Simulation() {
     setScheduleContent('');
   };
 
+  const handleLoadDemoPreset = async () => {
+    setIsLoadingDemo(true);
+    try {
+      const res = await apiClient.loadDemoPreset();
+      if (res.success) {
+        setReadingsContent(res.readingsContent);
+        setScheduleContent(res.scheduleContent);
+
+        const rVal = validateReadingsCsv(res.readingsContent);
+        setReadingsValidation(rVal);
+
+        const sUnits = new Set<string>(rVal.metadata?.units || []);
+        const sVal = validateScheduleCsv(res.scheduleContent, sUnits);
+        setScheduleValidation(sVal);
+
+        const rFile = new File([res.readingsContent], res.readingsFilename, { type: 'text/csv' });
+        const sFile = new File([res.scheduleContent], res.scheduleFilename, { type: 'text/csv' });
+        draft.setDraft({ readingsFile: rFile, scheduleFile: sFile, mode: 'replay' });
+
+        if (rVal.valid && rVal.data && rVal.data.length > 0) {
+          const result = processTelemetryData(rVal.data, draft.tariff);
+          setProcessedTelemetry(result);
+          const pts = result.hourlyPointsByHall[selectedHallFilter] || result.hourlyPointsByHall['ALL'] || [];
+          setLiveChartPoints(pts);
+          setLiveAnomalies(result.anomalies);
+          setLiveRecommendations(result.recommendations);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load demo preset:', err);
+    } finally {
+      setIsLoadingDemo(false);
+    }
+  };
+
   const handleSimulate = () => {
-    if (!readingsValidation?.valid || !scheduleValidation?.valid) return;
+    if (!readingsValidation?.valid) return;
 
     createSimulation.mutate(
       {
@@ -402,9 +466,6 @@ export default function Simulation() {
           setActiveJobId(res.id);
           if (draft.mode === 'replay') {
             setReplayStatus('running');
-            setLiveChartPoints([]);
-            setLiveAnomalies([]);
-            setLiveRecommendations([]);
             setLiveTick(null);
           }
         },
@@ -498,7 +559,7 @@ export default function Simulation() {
   };
 
   // State flags
-  const isReady = !!(readingsValidation?.valid && scheduleValidation?.valid);
+  const isReady = !!(readingsValidation?.valid && (scheduleValidation?.valid || readingsContent.includes('scheduled_open')));
   const isRunning = activeJob && (activeJob.status === 'running' || activeJob.status === 'queued');
   const isDone = activeJob && activeJob.status === 'done';
   const isFailed = activeJob && activeJob.status === 'failed';
@@ -581,33 +642,58 @@ export default function Simulation() {
   };
 
   const currentReplayHall = useMemo(() => {
-    if (!liveTick?.halls) return null;
-    if (selectedHallFilter === 'ALL') {
-      const hallsList = Object.values(liveTick.halls);
-      const avgIndoor = hallsList.length > 0 ? (hallsList.reduce((acc, h) => acc + h.indoorTempC, 0) / hallsList.length).toFixed(1) : '24.0';
-      const outdoor = hallsList[0]?.outdoorTempC ?? 28.0;
-      const totalOcc = hallsList.reduce((acc, h) => acc + h.occupancy, 0);
-      const activeUnits = hallsList.filter((h) => h.acOn).length;
-      const totalKw = hallsList.reduce((acc, h) => acc + h.powerKw, 0);
-      return {
-        hallId: 'ALL',
-        hallName: 'Campus Aggregate (All 5 Halls)',
-        indoorTempC: Number(avgIndoor),
-        outdoorTempC: outdoor,
-        occupancy: totalOcc,
-        acOn: activeUnits > 0,
-        setpointC: 24,
-        powerKw: Number(totalKw.toFixed(2)),
-        totalEnergyKwh: liveTick.aggregate.totalEnergyKwh,
-        wastedKwh: liveTick.aggregate.wastedEnergyKwh,
-        savingsInr: liveTick.aggregate.savingsInrEst,
-        activeUnitsCount: activeUnits,
-        totalUnitsCount: hallsList.length,
-        coolingEffectivenessPct: 94,
-      };
+    if (liveTick?.halls) {
+      if (selectedHallFilter === 'ALL') {
+        const hallsList = Object.values(liveTick.halls);
+        const avgIndoor = hallsList.length > 0 ? (hallsList.reduce((acc, h) => acc + h.indoorTempC, 0) / hallsList.length).toFixed(1) : '24.0';
+        const outdoor = hallsList[0]?.outdoorTempC ?? 28.0;
+        const totalOcc = hallsList.reduce((acc, h) => acc + h.occupancy, 0);
+        const activeUnits = hallsList.filter((h) => h.acOn).length;
+        const totalKw = hallsList.reduce((acc, h) => acc + h.powerKw, 0);
+        return {
+          hallId: 'ALL',
+          hallName: 'Campus Aggregate (All 5 Halls)',
+          indoorTempC: Number(avgIndoor),
+          outdoorTempC: outdoor,
+          occupancy: totalOcc,
+          acOn: activeUnits > 0,
+          setpointC: 24,
+          powerKw: Number(totalKw.toFixed(2)),
+          totalEnergyKwh: liveTick.aggregate.totalEnergyKwh,
+          wastedKwh: liveTick.aggregate.wastedEnergyKwh,
+          savingsInr: liveTick.aggregate.savingsInrEst,
+          activeUnitsCount: activeUnits,
+          totalUnitsCount: hallsList.length,
+          coolingEffectivenessPct: 94,
+        };
+      }
+      return liveTick.halls[selectedHallFilter] || null;
     }
-    return liveTick.halls[selectedHallFilter] || null;
-  }, [liveTick, selectedHallFilter]);
+
+    if (processedTelemetry) {
+      const summary = processedTelemetry.kpiSummaryByHall[selectedHallFilter] || processedTelemetry.kpiSummaryByHall['ALL'];
+      if (summary) {
+        return {
+          hallId: selectedHallFilter,
+          hallName: selectedHallFilter === 'ALL' ? 'Campus Aggregate (All 5 Halls)' : selectedHallFilter,
+          indoorTempC: summary.indoorTempC,
+          outdoorTempC: summary.outdoorTempC,
+          occupancy: summary.avgOccupancy,
+          acOn: summary.activeUnitsCount > 0,
+          setpointC: 24,
+          powerKw: summary.currentPowerKw,
+          totalEnergyKwh: summary.totalEnergyKwh,
+          wastedKwh: summary.totalWastedKwh,
+          savingsInr: summary.totalSavingsInr,
+          activeUnitsCount: summary.activeUnitsCount,
+          totalUnitsCount: summary.totalUnitsCount,
+          coolingEffectivenessPct: 94,
+        };
+      }
+    }
+
+    return null;
+  }, [liveTick, selectedHallFilter, processedTelemetry]);
 
   // Status Badge Rendering
   const renderStatusBadge = () => {
@@ -694,6 +780,24 @@ export default function Simulation() {
               <span>Past Runs ({history.length})</span>
             </Button>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLoadDemoPreset}
+            disabled={isLoadingDemo}
+            className="gap-1.5 text-xs h-9 bg-accent-soft/30 border-accent/30 text-accent hover:bg-accent hover:text-white"
+          >
+            {isLoadingDemo ? (
+              <>
+                <RefreshCw size={14} className="animate-spin" /> Loading synthetic_data...
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} /> Load synthetic_data Benchmark
+              </>
+            )}
+          </Button>
 
           <Button
             variant="primary"
@@ -787,7 +891,18 @@ export default function Simulation() {
               <UploadCloud size={16} className="text-accent" />
               <span>1. Data Upload & Validation</span>
             </h2>
-            <span className="text-xs text-ink-3">Upload both files to enable simulation</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadDemoPreset}
+                disabled={isLoadingDemo}
+                className="gap-1.5 text-xs h-7 text-accent border-accent/30 hover:bg-accent hover:text-white"
+              >
+                {isLoadingDemo ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                <span>Auto-Load synthetic_data Benchmark</span>
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1341,83 +1456,6 @@ export default function Simulation() {
             </div>
           </div>
 
-          {/* 3. Live Time-Series Chart */}
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-3">
-              <div>
-                <h2 className="text-base font-bold text-ink flex items-center gap-2">
-                  <Calendar size={18} className="text-accent" />
-                  <span>Live Replay Energy Consumption Chart</span>
-                </h2>
-                <p className="text-xs text-ink-3">
-                  Scope: <span className="font-semibold text-ink">{selectedHallFilter === 'ALL' ? 'Campus Aggregate (All 5 Halls)' : selectedHallFilter}</span> • Streaming hourly energy accumulation during live replay.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1.5 text-ink-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent inline-block" /> Live Telemetry
-                </span>
-                <span className="flex items-center gap-1.5 text-ink-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber inline-block" /> Baseline / Predicted
-                </span>
-              </div>
-            </div>
-
-            <Card className="p-5 border border-line flex flex-col min-h-[380px]">
-              <div className="flex-1 w-full h-[320px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={liveChartPoints} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-                    <XAxis
-                      dataKey="timeLabel"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: 'var(--ink-3)' }}
-                      dy={10}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: 'var(--ink-3)' }}
-                      unit=" kWh"
-                    />
-                    <RechartsTooltip content={<ChartTooltip valueSuffix=" kWh" />} />
-                    <Legend wrapperStyle={{ paddingTop: 15 }} />
-                    <Line
-                      type="monotone"
-                      name="Model Baseline / Forecast (kWh)"
-                      dataKey="predictedKwh"
-                      stroke="var(--amber)"
-                      strokeWidth={2}
-                      strokeDasharray="4 4"
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    <Line
-                      type="monotone"
-                      name="Live Replay Telemetry (kWh)"
-                      dataKey="actualKwh"
-                      stroke="var(--accent)"
-                      strokeWidth={2.5}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-line text-[11px] text-ink-3 space-y-1">
-                <div className="flex items-center gap-1.5 text-ink-2 font-semibold">
-                  <Info size={13} className="text-accent" />
-                  <span>Playback Performance & Throttling:</span>
-                </div>
-                <p>
-                  Telemetry records are chronologically processed minute-by-minute across all 5 halls. Dashboard chart points are sampled continuously to prevent UI thread lock during high-speed playback.
-                </p>
-              </div>
-            </Card>
-          </div>
 
           {/* 4. Live Anomaly Event List */}
           <div className="space-y-4">
@@ -1440,6 +1478,8 @@ export default function Simulation() {
                 >
                   <option value="ALL">All Categories</option>
                   <option value="runtime_after_hours">Phantom Runtime (Unscheduled)</option>
+                  <option value="cooling_degradation">Equipment Cooling Degradation</option>
+                  <option value="weekend_unscheduled">Weekend Unscheduled Run</option>
                   <option value="setpoint_too_low">Over-cooling (Setpoint Low)</option>
                   <option value="model_outlier">Isolation Forest ML Outlier</option>
                 </select>
@@ -1457,8 +1497,73 @@ export default function Simulation() {
               </div>
             </div>
 
+            {/* Anomaly Category Filter Chips */}
+            {liveAnomalies.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setAnomalyFilterCat('ALL')}
+                  className={`px-2.5 py-1 rounded-full font-medium transition-all ${
+                    anomalyFilterCat === 'ALL'
+                      ? 'bg-ink text-page font-bold shadow-xs'
+                      : 'bg-page text-ink-3 hover:text-ink border border-line'
+                  }`}
+                >
+                  All ({liveAnomalies.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnomalyFilterCat('runtime_after_hours')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all ${
+                    anomalyFilterCat === 'runtime_after_hours'
+                      ? 'bg-rose text-white font-bold shadow-xs'
+                      : 'bg-page text-rose hover:bg-rose/5 border border-rose/20'
+                  }`}
+                >
+                  <Clock size={12} />
+                  <span>Phantom After-Hours ({liveAnomalies.filter((a) => a.category === 'runtime_after_hours').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnomalyFilterCat('cooling_degradation')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all ${
+                    anomalyFilterCat === 'cooling_degradation'
+                      ? 'bg-amber text-white font-bold shadow-xs'
+                      : 'bg-page text-amber hover:bg-amber/5 border border-amber/20'
+                  }`}
+                >
+                  <Flame size={12} />
+                  <span>Cooling Degradation ({liveAnomalies.filter((a) => a.category === 'cooling_degradation').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnomalyFilterCat('weekend_unscheduled')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all ${
+                    anomalyFilterCat === 'weekend_unscheduled'
+                      ? 'bg-rose text-white font-bold shadow-xs'
+                      : 'bg-page text-rose hover:bg-rose/5 border border-rose/20'
+                  }`}
+                >
+                  <Calendar size={12} />
+                  <span>Weekend Unscheduled ({liveAnomalies.filter((a) => a.category === 'weekend_unscheduled').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnomalyFilterCat('model_outlier')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all ${
+                    anomalyFilterCat === 'model_outlier'
+                      ? 'bg-purple-600 text-white font-bold shadow-xs'
+                      : 'bg-page text-purple-600 hover:bg-purple-500/5 border border-purple-500/20'
+                  }`}
+                >
+                  <Zap size={12} />
+                  <span>Model 1 ML ({liveAnomalies.filter((a) => a.detectionMethod === 'ml' || a.category === 'model_outlier').length})</span>
+                </button>
+              </div>
+            )}
+
             {liveAnomalies.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                 {liveAnomalies
                   .filter((a) => {
                     if (selectedHallFilter !== 'ALL' && a.hallId !== selectedHallFilter) return false;
@@ -1466,16 +1571,26 @@ export default function Simulation() {
                     if (anomalyFilterSev !== 'ALL' && a.severity !== anomalyFilterSev) return false;
                     return true;
                   })
-                  .slice(0, 8)
+                  .slice(0, 10)
                   .map((anom) => (
-                    <Card key={anom.id} className="p-4 border border-line flex flex-col justify-between space-y-3">
+                    <Card key={anom.id} className="p-4 border border-line flex flex-col justify-between space-y-3.5 hover:border-line-hover transition-colors shadow-xs">
                       <div>
-                        <div className="flex items-start justify-between gap-2 mb-2">
+                        {/* Card Header with Hall, Timestamp, and Badges */}
+                        <div className="flex items-start justify-between gap-2 mb-2 pb-2 border-b border-line/50">
                           <div>
-                            <span className="text-xs font-semibold text-ink">{anom.hallName}</span>
-                            <span className="text-[11px] text-ink-3 ml-2 font-mono">{anom.timestamp}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-ink">{anom.hallName}</span>
+                              <span className="text-[10px] text-ink-3 font-mono">{anom.timestamp}</span>
+                            </div>
+                            <div className="text-xs font-semibold text-rose-500 flex items-center gap-1.5 mt-0.5">
+                              {anom.category === 'runtime_after_hours' && <Clock size={13} className="text-rose" />}
+                              {anom.category === 'cooling_degradation' && <Flame size={13} className="text-amber" />}
+                              {anom.category === 'weekend_unscheduled' && <Calendar size={13} className="text-rose" />}
+                              {anom.category === 'model_outlier' && <Zap size={13} className="text-purple-500" />}
+                              <span>{anom.anomalyTitle || (anom.category === 'runtime_after_hours' ? 'Phantom After-Hours AC Operation' : anom.category)}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <span
                               className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
                                 anom.severity === 'critical'
@@ -1494,28 +1609,181 @@ export default function Simulation() {
                                   : 'bg-accent-soft text-accent border border-accent/20'
                               }`}
                             >
-                              {anom.detectionMethod === 'ml' ? 'ML Model 1 (Isolation Forest)' : 'Rule Engine'}
+                              {anom.detectionMethod === 'ml' ? 'ML Model 1' : 'Rule Engine'}
                             </span>
                           </div>
                         </div>
 
-                        <p className="text-xs text-ink-2 leading-relaxed">{anom.explanation}</p>
+                        {/* Identified Finding & Root Cause */}
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider block mb-0.5">
+                              Identified Telemetry Finding:
+                            </span>
+                            <p className="text-xs text-ink leading-relaxed">{anom.explanation}</p>
+                          </div>
+
+                          {/* Root Cause Analysis Callout */}
+                          {anom.rootCause && (
+                            <div className="bg-page/70 border border-line rounded p-2 text-[11px] space-y-0.5">
+                              <span className="font-semibold text-ink-2 block">Root Cause Analysis:</span>
+                              <p className="text-ink-3 leading-relaxed">{anom.rootCause}</p>
+                            </div>
+                          )}
+
+                          {/* Sensor State Telemetry Snapshot */}
+                          {anom.sensorSnapshot && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
+                              <span className="px-1.5 py-0.5 rounded bg-page border border-line text-ink-2">
+                                Indoor: <strong className="text-ink">{anom.sensorSnapshot.indoorTempC}°C</strong>
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-page border border-line text-ink-2">
+                                Setpoint: <strong className="text-ink">{anom.sensorSnapshot.setpointC}°C</strong>
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-page border border-line text-ink-2">
+                                Power: <strong className="text-ink">{anom.sensorSnapshot.powerKw.toFixed(1)} kW</strong>
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-page border border-line text-ink-2">
+                                Occupancy: <strong className="text-ink">{anom.sensorSnapshot.occupancy}</strong>
+                              </span>
+                              {anom.sensorSnapshot.coolingEffectivenessPct !== undefined && (
+                                <span className={`px-1.5 py-0.5 rounded border ${
+                                  anom.sensorSnapshot.coolingEffectivenessPct < 70 ? 'bg-rose/10 text-rose border-rose/20' : 'bg-page border-line text-ink-2'
+                                }`}>
+                                  Cooling Eff: <strong>{anom.sensorSnapshot.coolingEffectivenessPct.toFixed(0)}%</strong>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="pt-2 border-t border-line text-[11px] flex items-center justify-between">
-                        <span className="text-ink-3">
-                          Draw: <strong className="text-ink">{anom.observedKwh} kWh</strong> vs expected {anom.expectedKwh} kWh
-                        </span>
-                        <span className="text-accent font-medium">{anom.action}</span>
+                      {/* Card Footer with Waste, Cost, and Remediation */}
+                      <div className="pt-2 border-t border-line text-[11px] space-y-1.5">
+                        <div className="flex items-center justify-between text-ink-3">
+                          <span>
+                            Draw: <strong className="text-ink">{anom.observedKwh} kWh</strong> (Waste: <span className="text-rose font-semibold">{anom.wasteKwh ?? (anom.observedKwh - anom.expectedKwh).toFixed(1)} kWh</span>)
+                          </span>
+                          {anom.financialImpactInr && (
+                            <span className="text-mint font-semibold">
+                              ₹ {anom.financialImpactInr.toLocaleString('en-IN')} wasted
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] text-accent flex items-start gap-1">
+                            <span className="font-semibold shrink-0">Remediation:</span>
+                            <span className="truncate">{anom.action}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAnomalyModal(anom)}
+                            className="text-[10px] text-ink-3 hover:text-accent flex items-center gap-1 shrink-0 font-medium px-2 py-0.5 rounded hover:bg-page transition-colors"
+                          >
+                            <Eye size={12} /> Details
+                          </button>
+                        </div>
                       </div>
                     </Card>
                   ))}
               </div>
             ) : (
               <Card className="p-8 text-center border border-line text-xs text-ink-3">
-                No anomalies detected yet. Start replay to begin continuous sensor anomaly detection.
+                No anomalies detected yet. Upload <span className="font-mono text-ink-2">synthetic_demo.csv</span> or start live replay to begin continuous sensor anomaly detection.
               </Card>
             )}
+
+            {/* Modal Drill-Down for Detailed Anomaly Inspection */}
+            <AnimatePresence>
+              {selectedAnomalyModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-xs">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-card border border-line rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4"
+                  >
+                    <div className="flex items-start justify-between border-b border-line pb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-bold text-ink">{selectedAnomalyModal.hallName}</span>
+                          <span className="text-xs px-2 py-0.5 rounded uppercase font-bold bg-rose/10 text-rose border border-rose/20">
+                            {selectedAnomalyModal.severity}
+                          </span>
+                        </div>
+                        <p className="text-xs text-rose-500 font-semibold mt-0.5">
+                          {selectedAnomalyModal.anomalyTitle || selectedAnomalyModal.category}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAnomalyModal(null)}
+                        className="text-ink-3 hover:text-ink p-1 rounded hover:bg-page"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <span className="text-ink-3 font-semibold uppercase tracking-wider text-[10px] block">Identified Finding:</span>
+                        <p className="text-sm text-ink font-medium mt-0.5 leading-relaxed">{selectedAnomalyModal.explanation}</p>
+                      </div>
+
+                      {selectedAnomalyModal.rootCause && (
+                        <div className="bg-page p-3 rounded-inner border border-line space-y-1">
+                          <span className="font-semibold text-ink block text-xs">Root Cause & Diagnostic Analysis:</span>
+                          <p className="text-xs text-ink-2 leading-relaxed">{selectedAnomalyModal.rootCause}</p>
+                        </div>
+                      )}
+
+                      {selectedAnomalyModal.sensorSnapshot && (
+                        <div>
+                          <span className="text-ink-3 font-semibold uppercase tracking-wider text-[10px] block mb-1.5">Sensor Snapshot At Event Time:</span>
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Indoor Temp</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.indoorTempC}°C</span>
+                            </div>
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Thermostat Setpoint</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.setpointC}°C</span>
+                            </div>
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Power Draw</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.powerKw.toFixed(1)} kW</span>
+                            </div>
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Occupants</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.occupancy}</span>
+                            </div>
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Cooling Eff.</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.coolingEffectivenessPct ?? 95}%</span>
+                            </div>
+                            <div className="bg-page p-2 rounded border border-line">
+                              <span className="text-[10px] text-ink-3 block">Scheduled Open</span>
+                              <span className="font-bold text-ink text-sm">{selectedAnomalyModal.sensorSnapshot.scheduledOpen ? 'YES' : 'NO'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="bg-mint/10 border border-mint/20 p-3 rounded-inner space-y-1">
+                        <span className="font-semibold text-mint block text-xs">Recommended BMS Automation Action:</span>
+                        <p className="text-xs text-ink-2 leading-relaxed">{selectedAnomalyModal.action}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-line">
+                      <Button variant="primary" size="sm" onClick={() => setSelectedAnomalyModal(null)}>
+                        Close Details
+                      </Button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* 5. Live Rule-Based AC Optimization Recommendations */}

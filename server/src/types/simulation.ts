@@ -51,6 +51,7 @@ export interface ReplayTickData {
     actualKwh: number;
     predictedKwh: number;
     wastedKwh: number;
+    byHall?: Record<string, { actualKwh: number; predictedKwh: number; wastedKwh: number }>;
   };
   latestAnomalies: SimulationAnomalyEvent[];
   latestRecommendations: SimulationRecommendation[];
@@ -87,13 +88,26 @@ export interface SimulationAnomalyEvent {
   hallName: string;
   acUnitId: string;
   timestamp: string;
-  category: 'runtime_after_hours' | 'setpoint_too_low' | 'excessive_power' | 'phantom_run' | 'model_outlier';
+  category: 'runtime_after_hours' | 'setpoint_too_low' | 'excessive_power' | 'phantom_run' | 'model_outlier' | 'cooling_degradation' | 'weekend_unscheduled';
   severity: 'critical' | 'high' | 'medium' | 'low';
   detectionMethod: 'ml' | 'rule';
   observedKwh: number;
   expectedKwh: number;
   explanation: string;
   action: string;
+  anomalyTitle?: string;
+  rootCause?: string;
+  sensorSnapshot?: {
+    indoorTempC: number;
+    outdoorTempC: number;
+    setpointC: number;
+    occupancy: number;
+    powerKw: number;
+    coolingEffectivenessPct?: number;
+    scheduledOpen: boolean;
+  };
+  wasteKwh?: number;
+  financialImpactInr?: number;
 }
 
 export interface SimulationRecommendation {
